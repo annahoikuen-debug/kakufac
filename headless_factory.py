@@ -1,7 +1,4 @@
 import os
-from google import genai
-from google.genai import types
-import sqlite3
 import json
 import time
 import datetime
@@ -9,18 +6,29 @@ import re
 import random
 import zipfile
 import io
+import sqlite3
+import smtplib
 from contextlib import contextmanager
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
+from google import genai
+from google.genai import types
 
 # ==========================================
-# 0. 設定 & 2026年仕様
+# 0. 設定 & 2026年仕様 (Headless)
 # ==========================================
-# st.set_page_config removed
+# 環境変数から取得
+API_KEY = os.environ.get("GEMINI_API_KEY")
+GMAIL_USER = os.environ.get("GMAIL_USER")
+GMAIL_PASS = os.environ.get("GMAIL_PASS")
+TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定
 MODEL_ULTRALONG = "gemini-2.5-flash"      # 高品質・プロット・完結・リライト用
 MODEL_LITE = "gemini-2.5-flash-lite"      # 高速執筆・データ処理・評価用
 
-DB_FILE = "kaku_factory_v80_auto_mobile.db"
+DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 REWRITE_THRESHOLD = 70  # リライト閾値
 
 # ==========================================
@@ -166,7 +174,7 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, genre TEXT, concept TEXT,
                     synopsis TEXT, catchcopy TEXT, target_eps INTEGER, style_dna TEXT,
                     target_audience TEXT, special_ability TEXT DEFAULT '',
-                    status TEXT DEFAULT 'active', created_at TEXT
+                    status TEXT DEFAULT 'active', created_at TEXT, marketing_data TEXT, sub_plots TEXT
                 );
                 CREATE TABLE IF NOT EXISTS bible (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, content TEXT,
@@ -187,33 +195,13 @@ class DatabaseManager:
                     book_id INTEGER, ep_num INTEGER, title TEXT, content TEXT,
                     score_story INTEGER, killer_phrase TEXT, reader_retention_score INTEGER,
                     ending_emotion TEXT, discomfort_score INTEGER DEFAULT 0, tags TEXT,
-                    ai_insight TEXT, retention_data TEXT, summary TEXT,
+                    ai_insight TEXT, retention_data TEXT, summary TEXT, world_state TEXT,
                     created_at TEXT, PRIMARY KEY(book_id, ep_num)
                 );
                 CREATE TABLE IF NOT EXISTS characters (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, name TEXT, role TEXT, dna_json TEXT, monologue_style TEXT
                 );
             ''')
-            
-            migrations = [
-                ("chapters", "summary", "TEXT"),
-                ("chapters", "ai_insight", "TEXT"),
-                ("chapters", "world_state", "TEXT"), 
-                ("plot", "setup", "TEXT"),
-                ("plot", "conflict", "TEXT"),
-                ("plot", "climax", "TEXT"),
-                ("plot", "resolution", "TEXT"),
-                ("plot", "stress_level", "INTEGER DEFAULT 0"),
-                ("books", "marketing_data", "TEXT"),
-                ("books", "sub_plots", "TEXT"),
-                ("characters", "monologue_style", "TEXT")
-            ]
-            
-            for table, col, type_def in migrations:
-                try:
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {type_def}")
-                except sqlite3.OperationalError:
-                    pass
 
     def execute(self, query, params=()):
         with self._get_conn() as conn:
@@ -237,6 +225,12 @@ db = DatabaseManager(DB_FILE)
 class UltraEngine:
     def __init__(self, api_key):
         self.client = genai.Client(api_key=api_key) if api_key else None
+        self.safety_settings = [
+            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+        ]
 
     def _clean_json(self, text):
         if not text: return None
@@ -264,6 +258,7 @@ class UltraEngine:
 
     def generate_universe_blueprint_full(self, genre, style, mc_personality, mc_tone, keywords):
         """全25話の構成と設定を3分割生成して結合"""
+        print("Step 1: Full Plot Generation (3 Phases)...")
         theme_instruction = f"【最重要テーマ・伏線指示】\nこの物語全体を貫くテーマ、および結末に向けた伏線として、以下の要素を徹底的に組み込め: {keywords}"
         
         # 共通のプロンプトコア
@@ -284,13 +279,6 @@ class UltraEngine:
 3. **多層シミュレーション**: 各話のプロットを出力する前に、内部で『読者の予想』を3パターン想定し、そのすべてを裏切る第4の展開を執筆せよ。
 4. **完結**: 25話でカタルシスと共に美しく終わらせること。
 """
-        # Safety Settings
-        safety_settings = [
-            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
-        ]
 
         # --- Phase 1: 設定 + 1-8話 ---
         prompt1 = f"""
@@ -336,21 +324,19 @@ class UltraEngine:
                     contents=prompt1,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        safety_settings=safety_settings
+                        safety_settings=self.safety_settings
                     )
                 )
                 data1 = self._clean_json(res1.text)
                 if data1: break
             except Exception as e:
-                if attempt == 2:
-                    print(f"Plot Phase 1 Error: {e}")
-                    return None
+                print(f"Plot Phase 1 Error: {e}")
                 time.sleep(2 ** attempt)
         
         if not data1: return None
 
         # --- Phase 2: 9-17話 ---
-        context_summ = "\n".join([f"第{p['ep_num']}話: {p['title']} - {p['resolution'][:100]}..." for p in data1['plots']])
+        context_summ = "\n".join([f"第{p.get('ep_num', '?')}話: {p.get('title','無題')} - {p.get('resolution','...')[:100]}..." for p in data1['plots']])
         prompt2 = f"""
 {core_instruction}
 
@@ -386,22 +372,21 @@ class UltraEngine:
                     contents=prompt2,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        safety_settings=safety_settings
+                        safety_settings=self.safety_settings
                     )
                 )
                 data2 = self._clean_json(res2.text)
                 if data2: break
             except Exception as e:
-                if attempt == 2:
-                    print(f"Plot Phase 2 Error: {e}")
-                    return data1
+                print(f"Plot Phase 2 Error: {e}")
                 time.sleep(2 ** attempt)
 
-        if data2:
+        if data2 and 'plots' in data2:
             data1['plots'].extend(data2['plots'])
 
         # --- Phase 3: 18-25話 ---
-        context_summ_2 = "\n".join([f"第{p['ep_num']}話: {p['title']} - {p['resolution'][:100]}..." for p in (data2['plots'] if data2 else data1['plots'])])
+        full_plots = data1['plots']
+        context_summ_2 = "\n".join([f"第{p.get('ep_num', i+1)}話: {p.get('title','無題')} - {p.get('resolution','...')[:100]}..." for i, p in enumerate(full_plots)])
         prompt3 = f"""
 {core_instruction}
 
@@ -437,17 +422,16 @@ class UltraEngine:
                     contents=prompt3,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        safety_settings=safety_settings
+                        safety_settings=self.safety_settings
                     )
                 )
                 data3 = self._clean_json(res3.text)
                 if data3: break
             except Exception as e:
-                if attempt == 2:
-                    print(f"Plot Phase 3 Error: {e}")
+                print(f"Plot Phase 3 Error: {e}")
                 time.sleep(2 ** attempt)
 
-        if data3:
+        if data3 and 'plots' in data3:
             data1['plots'].extend(data3['plots'])
             
         return data1
@@ -458,8 +442,8 @@ class UltraEngine:
         end_idx = end_ep
         if start_idx < 0: return None
         
-        all_plots = sorted(book_data['plots'], key=lambda x: x['ep_num'])
-        target_plots = [p for p in all_plots if start_ep <= p['ep_num'] <= end_ep]
+        all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
+        target_plots = [p for p in all_plots if start_ep <= p.get('ep_num', -1) <= end_ep]
         
         if not target_plots: return None
 
@@ -501,14 +485,6 @@ class UltraEngine:
             指示: {rewrite_instruction}
             """
         
-        # Safety Settings
-        safety_settings = [
-            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
-        ]
-
         # ------------------------------------------------------------------
         # PROMPT (Modularized)
         # ------------------------------------------------------------------
@@ -576,7 +552,7 @@ class UltraEngine:
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        safety_settings=safety_settings
+                        safety_settings=self.safety_settings
                     )
                 )
                 return self._clean_json(res.text)
@@ -644,8 +620,9 @@ Task 2: マーケティング素材生成
 
 【作品タイトル】{book_info['title']}
 【原稿データ】
-{context}
-"""
+{context[:30000]}
+""" 
+        # Context制限のため要約のみ渡すなどの工夫が必要だが、一旦Liteで投げる
         data = None
         for attempt in range(3):
             try:
@@ -654,7 +631,7 @@ Task 2: マーケティング素材生成
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
-                        safety_settings=safety_settings
+                        safety_settings=self.safety_settings
                     )
                 )
                 data = self._clean_json(res.text)
@@ -794,10 +771,10 @@ def task_plot_gen(engine, genre, style, personality, tone, keywords):
     
     if blueprint:
         bid = engine.save_blueprint_to_db(blueprint, genre, style)
-        print(f"SUCCESS: Full Plot Generated: ID {bid}")
+        print(f"Full Plot Generated: ID {bid}")
         return bid
     else:
-        print("ERROR: Plot Generation Failed")
+        print("Plot Generation Failed")
         return None
 
 def task_write_batch(engine, bid):
@@ -822,7 +799,6 @@ def task_write_batch(engine, bid):
     ]
     
     total_count = 0
-    # progress_bar = st.progress(0)
     
     for i, (start, end, model) in enumerate(batch_plan):
         print(f"Writing Ep {start}-{end} ({model})...")
@@ -837,10 +813,9 @@ def task_write_batch(engine, bid):
                 total_count += c
                 print(f"Generated {c} Episodes")
             else:
-                print(f"ERROR: Failed Ep {start}-{end}")
+                print(f"Failed Ep {start}-{end}")
         
-        # progress_bar.progress((i + 1) * 20)
-        time.sleep(1)
+        time.sleep(2)
         
     return total_count, full_data, saved_style
 
@@ -857,157 +832,192 @@ def task_rewrite(engine, full_data, rewrite_targets, evals, saved_style):
     return c
 
 # ==========================================
-# 3. Headless Main Logic
+# 3. Main Logic (Headless)
 # ==========================================
-def main():
-    print("⚡ Kaku-Factory ULTRA-BATCH (Headless Autopilot)")
-    print("2026 Arch: Fully Automated Novel Generation System")
-    print("--------------------------------------------------")
+db = DatabaseManager(DB_FILE)
 
-    # --- CONFIGURATION START ---
-    # Please set your API key in the environment variable 'GEMINI_API_KEY' or directly below
-    api_key = os.environ.get("GEMINI_API_KEY") or ""
+def load_seed():
+    """ネタ帳読み込み"""
+    if not os.path.exists("story_seeds.json"):
+        # Fallback
+        return {
+            "genre": "現代ダンジョン", 
+            "keywords": "配信, 事故, 無双", 
+            "personality": "冷静沈着", 
+            "tone": "俺", 
+            "hook_text": "配信切り忘れで世界最強がバレる",
+            "style": "標準"
+        }
     
-    # Input Settings (Simulating UI Inputs)
-    target_genre = "現代ダンジョン（配信・掲示板）" 
-    # Options: "現代ダンジョン（配信・掲示板）", "異世界転生（追放ざまぁ）", "悪役令嬢（断罪回避）", 
-    # "ラブコメ（幼馴染・クーデレ）", "サイバーパンク・アクション", "ホラー・ミステリー"
-    
-    selected_style = "標準" # Options: "シリアス", "標準", "コミカル", "過激"
-    mc_personality = "冷静沈着"
-    mc_tone = "俺、〜だ"
-    keywords_input = "世界の真実はAIによって管理されている, 主人公の裏切り, 隠された王家の血筋"
-    # --- CONFIGURATION END ---
+    with open("story_seeds.json", "r", encoding='utf-8') as f:
+        data = json.load(f)
+        seed = random.choice(data['seeds'])
+        tmpl = random.choice(seed['templates'])
+        
+        twists = ["記憶喪失", "実は2周目", "相棒がラスボス", "寿命が残りわずか"]
+        twist = random.choice(twists)
+        
+        print(f"★ Selected: {seed['genre']} - {tmpl['type']}")
+        return {
+            "genre": seed['genre'],
+            "keywords": f"{tmpl['keywords']}, {twist}",
+            "personality": tmpl['mc_profile'],
+            "tone": "俺",
+            "hook_text": tmpl['hook'],
+            "style": "標準"
+        }
 
-    if not api_key:
-        print("ERROR: API Key is missing. Set GEMINI_API_KEY environment variable.")
+def create_zip_package(book_id, title, marketing_data):
+    print("Packing ZIP...")
+    buffer = io.BytesIO()
+    
+    # DBから必要データを再取得
+    current_book = db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
+    db_chars = db.fetch_all("SELECT * FROM characters WHERE book_id=?", (book_id,))
+    db_plots = db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
+    chapters = db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
+
+    # ファイル名クリーニング
+    def clean_filename_title(t):
+        return re.sub(r'[\\/:*?"<>|]', '', re.sub(r'^第\d+話[\s　]*', '', t)).strip()
+
+    # キーワード辞書準備
+    keyword_dict = {}
+    mc_char = next((c for c in db_chars if c['role'] == '主人公'), None)
+    if mc_char:
+        try:
+            dna = json.loads(mc_char['dna_json'])
+            keyword_dict = dna.get('keyword_dictionary', {})
+        except: pass
+
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        # 1. 作品登録用データ
+        reg_info = f"【タイトル】\n{title}\n\n【あらすじ】\n{current_book.get('synopsis', '')}\n"
+        z.writestr("00_作品登録用データ.txt", reg_info)
+
+        # 2. 設定資料
+        setting_txt = f"【世界観・特殊能力設定】\n{current_book.get('special_ability', 'なし')}\n\n"
+        setting_txt += "【キャラクター設定】\n"
+        for char in db_chars:
+            setting_txt += f"■ {char['name']} ({char['role']})\n"
+            if char.get('monologue_style'):
+                setting_txt += f"  - モノローグ癖: {char['monologue_style']}\n"
+            try:
+                dna = json.loads(char['dna_json'])
+                for k, v in dna.items():
+                    if k not in ['name', 'role', 'monologue_style']:
+                        val_str = json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)
+                        setting_txt += f"  - {k}: {val_str}\n"
+            except:
+                setting_txt += f"  - 設定データ: {char['dna_json']}\n"
+            setting_txt += "\n"
+        z.writestr("00_キャラクター・世界観設定資料.txt", setting_txt)
+
+        # 3. 全話プロット
+        plot_txt = f"【タイトル】{title}\n【全話プロット構成案】\n\n"
+        for p in db_plots:
+            plot_txt += f"--------------------------------------------------\n"
+            plot_txt += f"第{p['ep_num']}話：{p['title']}\n"
+            plot_txt += f"--------------------------------------------------\n"
+            plot_txt += f"・メインイベント: {p.get('main_event', '')}\n"
+            plot_txt += f"・導入 (Setup): {p.get('setup', '')}\n"
+            plot_txt += f"・展開 (Conflict): {p.get('conflict', '')}\n"
+            plot_txt += f"・見せ場 (Climax): {p.get('climax', '')}\n"
+            plot_txt += f"・結末 (Resolution): {p.get('resolution', '')}\n"
+            plot_txt += f"・テンション: {p.get('tension', '-')}/100\n\n"
+        z.writestr("00_全話プロット構成案.txt", plot_txt)
+
+        # 4. チャプター
+        for ch in chapters:
+            clean_title = clean_filename_title(ch['title'])
+            fname = f"chapters/{ch['ep_num']:02d}_{clean_title}.txt"
+            body = TextFormatter.format(ch['content'], k_dict=keyword_dict)
+            z.writestr(fname, body)
+        
+        # 5. マーケティング
+        if marketing_data:
+            # 近況ノート
+            kinkyo = marketing_data.get('kinkyo_note', '')
+            if kinkyo:
+                z.writestr("00_近況ノート.txt", kinkyo)
+            
+            # マーケティング資産
+            meta = f"【タイトル】\n{title}\n\n"
+            meta += f"【キャッチコピー】\n" + "\n".join(marketing_data.get('catchcopies', [])) + "\n\n"
+            meta += f"【検索タグ】\n{' '.join(marketing_data.get('tags', []))}\n\n"
+            meta += f"【表紙プロンプト】\n{marketing_data.get('cover_prompt', '')}\n\n"
+            meta += "【挿絵プロンプト集】\n"
+            for ill in marketing_data.get('illustrations', []):
+                meta += f"第{ill['ep_num']}話: {ill['prompt']}\n"
+            z.writestr("marketing_assets.txt", meta)
+
+            # marketing_raw.json も保存（Streamlit版に準拠）
+            try:
+                z.writestr("marketing_raw.json", json.dumps(marketing_data, ensure_ascii=False))
+            except: pass
+
+    buffer.seek(0)
+    return buffer.getvalue()
+
+def send_email(zip_data, title):
+    if not GMAIL_USER or not GMAIL_PASS:
+        print("Skipping Email: Credentials not found.")
         return
-    
-    engine = UltraEngine(api_key)
 
-    # ----------------------------------------------------
-    # Autopilot Flow
-    # ----------------------------------------------------
-    print("⚡ Autopilot Started: Step 1〜4 + Packaging")
+    print(f"Sending Email to {TARGET_EMAIL}...")
+    msg = MIMEMultipart()
+    msg['Subject'] = f"【AI Novel Factory】{title} (Completed)"
+    msg['From'] = GMAIL_USER
+    msg['To'] = TARGET_EMAIL
+
+    part = MIMEBase('application', 'zip')
+    part.set_payload(zip_data)
+    encoders.encode_base64(part)
+    clean_title = re.sub(r'[\\/:*?"<>|]', '', title)
+    part.add_header('Content-Disposition', f'attachment; filename="{clean_title}.zip"')
+    msg.attach(part)
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_PASS)
+            server.send_message(msg)
+        print("Email Sent Successfully!")
+    except Exception as e:
+        print(f"Email Failed: {e}")
+
+def main():
+    if not API_KEY:
+        print("Error: GEMINI_API_KEY is missing.")
+        return
+
+    engine = UltraEngine(API_KEY)
+    
+    # 1. ネタ選定
+    seed = load_seed()
     
     # Step 1: Plot
-    bid = task_plot_gen(engine, target_genre, selected_style, mc_personality, mc_tone, keywords_input)
-    if not bid:
-        print("Aborting.")
-        return
+    bid = task_plot_gen(engine, seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords'])
+    if not bid: return
 
-    # Step 2: Write
+    # Step 2: Write (Batch Mode)
     total_count, full_data, saved_style = task_write_batch(engine, bid)
 
     # Step 3 & 4: Analyze & Market
     evals, rewrite_targets, assets = task_analyze_marketing(engine, bid)
-    print("Rewriting Targets (Below Threshold):", rewrite_targets)
+    print(f"Rewriting Targets (Below Threshold): {rewrite_targets}")
 
     # Step 5: Rewrite
     if rewrite_targets:
         task_rewrite(engine, full_data, rewrite_targets, evals, saved_style)
+
+    # Step 6: Package & Send
+    # DBからタイトル再取得（プロット生成で決まったもの）
+    book_info = db.fetch_one("SELECT title FROM books WHERE id=?", (bid,))
+    title = book_info['title']
     
-    print("🎉 All Steps Completed.")
-
-    # --- ダウンロードセクション (Saving to Disk) ---
-    current_bid = bid
-
-    if current_bid:
-        print("📦 creating Package...")
-        current_book = db.fetch_one("SELECT * FROM books WHERE id=?", (current_bid,))
-        if current_book:
-            book_title = current_book['title']
-            all_chapters = db.fetch_all("SELECT ep_num, title, content FROM chapters WHERE book_id=? ORDER BY ep_num", (current_bid,))
-            
-            if all_chapters:
-                zip_buffer = io.BytesIO()
-                
-                # キーワード辞書取得
-                keyword_dict = {}
-                mc_char = db.fetch_one("SELECT dna_json FROM characters WHERE book_id=? AND role='主人公'", (current_bid,))
-                if mc_char:
-                    try:
-                        dna = json.loads(mc_char['dna_json'])
-                        keyword_dict = dna.get('keyword_dictionary', {})
-                    except:
-                        pass
-
-                def clean_filename_title(title):
-                    return re.sub(r'[\\/:*?"<>|]', '', re.sub(r'^第\d+話[\s　]*', '', title)).strip()
-
-                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as z:
-                    # テキストデータ書き込み
-                    reg_info = f"【タイトル】\n{book_title}\n\n【あらすじ】\n{current_book.get('synopsis', '')}\n"
-                    z.writestr("00_作品登録用データ.txt", reg_info)
-                    
-                    # 設定資料
-                    setting_txt = f"【世界観・特殊能力設定】\n{current_book.get('special_ability', 'なし')}\n\n"
-                    setting_txt += "【キャラクター設定】\n"
-                    db_chars = db.fetch_all("SELECT * FROM characters WHERE book_id=?", (current_bid,))
-                    for char in db_chars:
-                        setting_txt += f"■ {char['name']} ({char['role']})\n"
-                        if char.get('monologue_style'):
-                             setting_txt += f"  - モノローグ癖: {char['monologue_style']}\n"
-                        try:
-                            dna = json.loads(char['dna_json'])
-                            for k, v in dna.items():
-                                if k not in ['name', 'role', 'monologue_style']:
-                                    val_str = json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)
-                                    setting_txt += f"  - {k}: {val_str}\n"
-                        except:
-                            setting_txt += f"  - 設定データ: {char['dna_json']}\n"
-                        setting_txt += "\n"
-                    z.writestr("00_キャラクター・世界観設定資料.txt", setting_txt)
-
-                    # プロット
-                    plot_txt = f"【タイトル】{book_title}\n【全話プロット構成案】\n\n"
-                    db_plots = db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (current_bid,))
-                    for p in db_plots:
-                        plot_txt += f"--------------------------------------------------\n"
-                        plot_txt += f"第{p['ep_num']}話：{p['title']}\n"
-                        plot_txt += f"--------------------------------------------------\n"
-                        plot_txt += f"・メインイベント: {p.get('main_event', '')}\n"
-                        plot_txt += f"・導入 (Setup): {p.get('setup', '')}\n"
-                        plot_txt += f"・展開 (Conflict): {p.get('conflict', '')}\n"
-                        plot_txt += f"・見せ場 (Climax): {p.get('climax', '')}\n"
-                        plot_txt += f"・結末 (Resolution): {p.get('resolution', '')}\n"
-                        plot_txt += f"・テンション: {p.get('tension', '-')}/100\n\n"
-                    z.writestr("00_全話プロット構成案.txt", plot_txt)
-
-                    # チャプター (Formatterクラスで統一処理)
-                    for ch in all_chapters:
-                        clean_title = clean_filename_title(ch['title'])
-                        fname = f"{ch['ep_num']:02d}_{clean_title}.txt"
-                        # CTA削除済み、Formatter利用
-                        body = TextFormatter.format(ch['content'], k_dict=keyword_dict)
-                        z.writestr(f"chapters/{fname}", body)
-                    
-                    # 販促
-                    marketing_data = None
-                    if current_book.get('marketing_data'):
-                        try:
-                            marketing_data = json.loads(current_book['marketing_data'])
-                            z.writestr("marketing_raw.json", current_book['marketing_data'])
-                        except:
-                            pass
-                    
-                    if marketing_data:
-                        kinkyo_text = marketing_data.get('kinkyo_note', '')
-                        if kinkyo_text:
-                            z.writestr("00_近況ノート.txt", kinkyo_text)
-                            
-                        meta_text = f"【タイトル】\n{book_title}\n\n"
-                        meta_text += f"【検索タグ】\n{' '.join(marketing_data.get('tags', []))}\n\n"
-                        meta_text += f"【表紙プロンプト】\n{marketing_data.get('cover_prompt', '')}\n\n"
-                        meta_text += "【挿絵プロンプト集】\n"
-                        for ill in marketing_data.get('illustrations', []):
-                            meta_text += f"第{ill['ep_num']}話: {ill['prompt']}\n"
-                        z.writestr("marketing_assets.txt", meta_text)
-
-                filename = f"{book_title}_full_package.zip"
-                with open(filename, "wb") as f:
-                    f.write(zip_buffer.getvalue())
-                print(f"📥 Saved Full Package to: {filename}")
+    zip_bytes = create_zip_package(bid, title, assets)
+    send_email(zip_bytes, title)
+    print("Mission Complete.")
 
 if __name__ == "__main__":
     main()
