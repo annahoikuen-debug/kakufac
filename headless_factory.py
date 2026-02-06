@@ -16,11 +16,9 @@ from google import genai
 from google.genai import types
 
 # ==========================================
-# 0. 設定 & 2026年仕様
+# 0. 設定 & 2026年仕様 (Headless)
 # ==========================================
-# Streamlit設定は削除
-
-# 環境変数から取得 (Headless仕様)
+# 環境変数から取得
 API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
@@ -30,7 +28,7 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 MODEL_ULTRALONG = "gemini-2.5-flash"      # 高品質・プロット・完結・リライト用
 MODEL_LITE = "gemini-2.5-flash-lite"      # 高速執筆・データ処理・評価用
 
-DB_FILE = "factory_run.db" # 一時DBに変更
+DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 REWRITE_THRESHOLD = 70  # リライト閾値
 
 # ==========================================
@@ -204,7 +202,6 @@ class DatabaseManager:
                     id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, name TEXT, role TEXT, dna_json TEXT, monologue_style TEXT
                 );
             ''')
-            # migrationsは新規DB作成時には不要なため省略
 
     def execute(self, query, params=()):
         with self._get_conn() as conn:
@@ -219,6 +216,8 @@ class DatabaseManager:
         with self._get_conn() as conn:
             row = conn.execute(query, params).fetchone()
             return dict(row) if row else None
+
+db = DatabaseManager(DB_FILE)
 
 # ==========================================
 # 2. ULTRA Engine (Autopilot & Mobile Opt)
