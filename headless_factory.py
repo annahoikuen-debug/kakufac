@@ -27,7 +27,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-MODEL_ULTRALONG = "gemini-2.5-flash"      # Gemini 2.5 Flash (プロット・高品質用)
+MODEL_ULTRALONG = "gemini-2.5-flash-lite"      # Gemini 2.5 Flash (プロット・高品質用)
 MODEL_LITE = "gemma-3-12b-it"             # Gemma 3 12B (量産の馬: 初稿・通常回用)
 MODEL_PRO = "gemma-3-27b-it"              # Gemma 3 27B (エースの筆: 推敲・重要回用)
 MODEL_EMBEDDING = "gemini-embedding-001"  # Gemma Embedding
@@ -302,13 +302,16 @@ class UltraEngine:
         return PROMPT_TEMPLATES["system_rules"].format(pronouns=pronouns_json, keywords=keywords_json, monologue_style=monologue, style=style)
 
     def _get_embedding(self, text):
-        """Get embedding vector using Gemma Embedding model"""
+        """Get embedding vector using Gemma Embedding model with Robust Retry"""
         # Tokenizer check (Approx)
         if len(text) > 10000:
             print(f"Warning: Text too long ({len(text)} chars). Truncating to 10k.")
             text = text[:10000]
 
-        for attempt in range(5):
+        backoff = 2
+        max_retries = 10
+
+        for attempt in range(max_retries):
             try:
                 result = self.client.models.embed_content(
                     model=MODEL_EMBEDDING,
@@ -320,11 +323,15 @@ class UltraEngine:
                 return result.embeddings[0].values
             except Exception as e:
                 if "429" in str(e) or "Resource has been exhausted" in str(e):
-                    print(f"Embedding Rate Limit (429). Retrying in {2**attempt}s...")
-                    time.sleep(2 ** attempt)
+                    print(f"Embedding Rate Limit (429). Retrying in {backoff}s... (Attempt {attempt+1}/{max_retries})")
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 60) # Exponential backoff up to 60s
                 else:
                     print(f"Embedding Error: {e}")
+                    # 他のクリティカルなエラーの場合はゼロベクトルを返して進行を妨げないようにする
                     return [0.0] * 768
+        
+        print("Embedding Failed after max retries. Returning zero vector.")
         return [0.0] * 768
 
     def _cosine_similarity(self, v1, v2):
@@ -337,7 +344,7 @@ class UltraEngine:
 
     def _save_plot_embeddings(self, book_id, plots):
         """Chunk plots and save embeddings to SQLite (Gemma Embedding)"""
-        print("Vectorizing plots...")
+        print(f"Vectorizing {len(plots)} plots...")
         for p in plots:
             # プロット情報を結合してチャンク化（300文字単位）
             full_text = f"第{p['ep_num']}話 {p['title']}\n{p['setup']}\n{p['conflict']}\n{p['climax']}\n{p['resolution']}"
@@ -372,9 +379,9 @@ class UltraEngine:
         top_k = [item[1] for item in scored[:n_results]]
         return "\n---\n".join(top_k)
 
-    def generate_universe_blueprint_full(self, genre, style, mc_personality, mc_tone, keywords):
-        """全25話の構成を2段階（1-13, 14-25）で生成し、Ki-Sho-Ten-Ketsu-Hiki構造を採用"""
-        print("Step 1: Hyper-Resolution Plot Generation (Gemini 2.5 Flash)...")
+    def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
+        """第1段階: 1話〜13話（セットアップから中盤の転換点まで）の生成"""
+        print("Step 1: Hyper-Resolution Plot Generation Phase 1 (Ep 1-13)...")
         theme_instruction = f"【最重要テーマ・伏線指示】\nこの物語全体を貫くテーマ: {keywords}"
         
         core_instruction = f"""
@@ -388,8 +395,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
 {theme_instruction}
 
 【構成指針: 2段階生成ロジック】
-- 第1段階: 1話〜13話（セットアップから中盤の転換点まで）
-- 第2段階: 14話〜25話（クライマックスからエンディングまで）
+- 今回は第1段階: 1話〜13話（セットアップから中盤の転換点まで）を作成。
 - 各話構成: 「起(Intro)・承(Development)・転(Twist)・結(Conclusion)・引き(Cliffhanger)」の5要素を記述。
 - インデックス: Embedding用に各話を「Scene 1(起承)」「Scene 2(転)」「Scene 3(結引き)」に分類可能にせよ。
 """
@@ -445,10 +451,24 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
                 print(f"Plot Phase 1 Error: {e}")
                 time.sleep(5)
         
-        if not data1: return None
+        return data1
 
-        # --- Phase 2: 14-25話 ---
+    def generate_universe_blueprint_phase2(self, genre, style, mc_personality, mc_tone, keywords, data1):
+        """第2段階: 14話〜25話の生成（Phase 1の情報を元に並列実行）"""
+        print("Step 1 (Parallel): Hyper-Resolution Plot Generation Phase 2 (Ep 14-25)...")
+        
         context_summ = "\n".join([f"Ep{p['ep_num']}: {p['resolution'][:50]}..." for p in data1['plots']])
+        
+        core_instruction = f"""
+あなたはWeb小説の神級プロットアーキテクトです。
+全25話完結の物語構造の後半を作成します。
+
+【基本設定】
+ジャンル: {genre}
+テーマ: {keywords}
+主人公: {mc_profile_str(data1['mc_profile'])}
+"""
+
         prompt2 = f"""
 {core_instruction}
 
@@ -456,7 +476,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
 前回の続きとして、第14話〜第25話（最終話）を作成せよ。
 これまでの伏線を回収し、感動のフィナーレへ導くこと。
 
-【これまでの流れ】
+【これまでの流れ (Ep1-13)】
 {context_summ}
 
 出力フォーマット(JSON):
@@ -487,10 +507,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
                 print(f"Plot Phase 2 Error: {e}")
                 time.sleep(5)
 
-        if data2 and 'plots' in data2:
-            data1['plots'].extend(data2['plots'])
-            
-        return data1
+        return data2
 
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="標準", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
         """マイクロ執筆エンジン (Asyncio Parallel: Tension-Selector & 2-Stage Draft/Polish)"""
@@ -846,6 +863,23 @@ Task 2: マーケティング素材生成
             saved_plots.append(p)
         return bid, saved_plots
 
+    def save_additional_plots_to_db(self, book_id, data_p2):
+        """Phase 2のプロットを追加保存"""
+        saved_plots = []
+        for p in data_p2['plots']:
+            full_title = f"第{p['ep_num']}話 {p['title']}"
+            main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
+            scenes_json = json.dumps(p.get('scenes', []), ensure_ascii=False)
+            db.execute(
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress_level, status, scenes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (book_id, p['ep_num'], full_title, main_ev, 
+                 p.get('setup'), p.get('conflict'), p.get('climax'), p.get('resolution'), 
+                 p.get('tension', 50), p.get('stress_level', 0), 'planned', scenes_json)
+            )
+            saved_plots.append(p)
+        return saved_plots
+
     def save_chapters_to_db(self, book_id, chapters_list):
         count = 0
         if not chapters_list: return 0
@@ -869,26 +903,27 @@ Task 2: マーケティング素材生成
 # ==========================================
 # Task Functions
 # ==========================================
-def task_plot_gen(engine, genre, style, personality, tone, keywords):
-    """Step 1: プロット生成 (2分割 & Embedding)"""
-    print("Step 1: Hyper-Resolution Plot Generation (Gemini 2.5 Flash)...")
+# ヘルパー: プロットデータからMC情報を文字列化
+def mc_profile_str(mc_profile):
+    return f"{mc_profile.get('name')} (性格:{mc_profile.get('personality')}, 口調:{mc_profile.get('tone')})"
 
-    blueprint = engine.generate_universe_blueprint_full(
-        genre, style, personality, tone, keywords
-    )
-
-    if blueprint:
-        bid, plots = engine.save_blueprint_to_db(blueprint, genre, style)
-        print(f"Full Plot Generated: ID {bid}")
-        # 2. Vector DB連携: 保存と同時にEmbedding
-        engine._save_plot_embeddings(bid, plots)
-        return bid
+async def task_plot_gen_phase2_and_embed(engine, bid, genre, style, mc_personality, mc_tone, keywords, data1):
+    """Task: Phase 2 Plot Generation and Embedding (Parallel)"""
+    print(f"Parallel Task: Generating Phase 2 for Book ID {bid}...")
+    data2 = engine.generate_universe_blueprint_phase2(genre, style, mc_personality, mc_tone, keywords, data1)
+    
+    if data2 and 'plots' in data2:
+        saved_plots_p2 = engine.save_additional_plots_to_db(bid, data2)
+        print(f"Phase 2 Plots Saved. Starting Embedding for Phase 2 ({len(saved_plots_p2)} eps)...")
+        engine._save_plot_embeddings(bid, saved_plots_p2)
+        print("Phase 2 Embedding Complete.")
+        return data2['plots']
     else:
-        print("Plot Generation Failed")
-        return None
+        print("Phase 2 Generation Failed.")
+        return []
 
-async def task_write_batch(engine, bid):
-    """Step 2: バッチ執筆 (Machine-Gun Parallel Async + Dynamic Routing)"""
+async def task_write_batch(engine, bid, start_ep, end_ep):
+    """Step 2: バッチ執筆 (Machine-Gun Parallel Async + Dynamic Routing) - 指定範囲"""
     book_info = db.fetch_one("SELECT * FROM books WHERE id=?", (bid,))
     plots = db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (bid,))
     mc = db.fetch_one("SELECT * FROM characters WHERE book_id=? AND role='主人公'", (bid,))
@@ -907,15 +942,19 @@ async def task_write_batch(engine, bid):
             try: p['scenes'] = json.loads(p['scenes'])
             except: pass
 
+    # 全プロットリストは渡すが、write_episodesが範囲をフィルタリングする
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
 
     # 同時実行数制御用セマフォ (1: Low TPM)
     semaphore = asyncio.Semaphore(1)
 
     tasks = []
-    print("Starting Machine-Gun Parallel Writing (25 Episodes)...")
+    print(f"Starting Machine-Gun Parallel Writing (Ep {start_ep} - {end_ep})...")
 
-    for p in plots:
+    # 対象範囲のプロットのみタスク生成
+    target_plots = [p for p in plots if start_ep <= p['ep_num'] <= end_ep]
+
+    for p in target_plots:
         ep_num = p['ep_num']
         tension = p.get('tension', 50)
         
@@ -945,7 +984,7 @@ async def task_write_batch(engine, bid):
             c = engine.save_chapters_to_db(bid, res_data['chapters'])
             total_count += c
             
-    print(f"Batch Done. Total Episodes: {total_count}")
+    print(f"Batch Done (Ep {start_ep}-{end_ep}). Total Episodes Written: {total_count}")
         
     return total_count, full_data, saved_style
 
@@ -1130,17 +1169,55 @@ async def main():
             # 1. ネタ選定
             seed = load_seed()
             
-            # Step 1: Plot (Hyper-Resolution Gemini 2.5) - Synchronous DB/API logic retained
-            bid = task_plot_gen(engine, seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords'])
-            if not bid: 
-                print("Plot Gen failed. Retrying in 10s...")
+            # --- Phase 1: Plot Generation (Ep 1-13) ---
+            print("Step 1a: Generating Plot Phase 1...")
+            data1 = engine.generate_universe_blueprint_phase1(
+                seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
+            )
+            
+            if not data1: 
+                print("Plot Gen Phase 1 failed. Retrying in 10s...")
                 await asyncio.sleep(10)
                 continue
 
-            # Step 2: Write (Micro-Batching Gemma 3 Async + Dynamic Routing + 2-Stage Draft/Polish)
-            total_count, full_data, saved_style = await task_write_batch(engine, bid)
+            # Save & Embed Phase 1 Immediately
+            bid, plots_p1 = engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
+            print(f"Phase 1 Saved. ID: {bid}")
+            
+            print("Step 1b: Embedding Phase 1 Immediately...")
+            engine._save_plot_embeddings(bid, plots_p1) # ここで429エラーが出ても_get_embedding内でリトライされる
+            
+            # --- Parallel Execution: [Write Phase 1] vs [Generate & Embed Phase 2] ---
+            print("Step 2: Starting Parallel Execution (Write P1 vs Gen/Embed P2)...")
+            
+            # Task A: Write Ep 1-13
+            task_write_p1 = asyncio.create_task(
+                task_write_batch(engine, bid, start_ep=1, end_ep=13)
+            )
+            
+            # Task B: Generate Ep 14-25 -> Save -> Embed
+            task_gen_p2 = asyncio.create_task(
+                task_plot_gen_phase2_and_embed(
+                    engine, bid, seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords'], data1
+                )
+            )
+            
+            # AとBの並列実行を待機
+            # task_write_p1の結果を受け取る
+            count_p1, full_data_p1, saved_style = await task_write_p1
+            # task_gen_p2の完了を待つ (返り値はPhase 2のプロットリスト)
+            await task_gen_p2
+            
+            print("Parallel Execution Completed. Proceeding to Write Phase 2...")
 
-            # Step 3 & 4: Analyze & Market - Lite model sync call
+            # --- Write Phase 2 (Ep 14-25) ---
+            # DBから最新のプロット情報（P2含む）を取得し直す必要があるため、task_write_batch内で再取得させる
+            count_p2, full_data_final, _ = await task_write_batch(engine, bid, start_ep=14, end_ep=25)
+            
+            total_count = count_p1 + count_p2
+            full_data = full_data_final # 最終的なデータを保持
+
+            # Step 3 & 4: Analyze & Market
             evals, rewrite_targets, assets = await task_analyze_marketing(engine, bid)
             print(f"Rewriting Targets (Below Threshold): {rewrite_targets}")
 
@@ -1161,6 +1238,8 @@ async def main():
 
         except Exception as e:
             print(f"Pipeline Critical Error: {e}")
+            import traceback
+            traceback.print_exc()
             await asyncio.sleep(60)
 
 if __name__ == "__main__":
