@@ -27,13 +27,35 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-MODEL_ULTRALONG = "gemini-2.5-flash"      # Gemini 2.5 Flash (プロット・高品質用)
+MODEL_ULTRALONG = "gemini-3-flash-preview"      # Gemini 2.5 Flash (プロット・高品質用)
 MODEL_LITE = "gemma-3-12b-it"             # Gemma 3 12B (量産の馬: 初稿・通常回用)
 MODEL_PRO = "gemma-3-27b-it"              # Gemma 3 27B (エースの筆: 推敲・重要回用)
-MODEL_EMBEDDING = "gemma-3-1b-it"  # Gemma Embedding
+MODEL_EMBEDDING = "gemini-embedding-001"  # Gemma Embedding
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 REWRITE_THRESHOLD = 70  # リライト閾値
+
+# Global Config: Rate Limits
+EMBEDDING_RPM = 100
+EMBEDDING_TPM = 30000
+MIN_REQUEST_INTERVAL = 1.0
+
+# ==========================================
+# Helper Class: Rate Limiter
+# ==========================================
+class RateLimiter:
+    def __init__(self, interval):
+        self.interval = interval
+        self.last_call = 0
+
+    def wait(self):
+        now = time.time()
+        elapsed = now - self.last_call
+        if elapsed < self.interval:
+            time.sleep(self.interval - elapsed)
+        self.last_call = time.time()
+
+rate_limiter = RateLimiter(MIN_REQUEST_INTERVAL)
 
 # ==========================================
 # プロンプト集約 (PROMPT_TEMPLATES)
@@ -281,18 +303,29 @@ class UltraEngine:
 
     def _get_embedding(self, text):
         """Get embedding vector using Gemma Embedding model"""
-        try:
-            result = self.client.models.embed_content(
-                model=MODEL_EMBEDDING,
-                contents=text,
-                config=types.EmbedContentConfig(
-                    task_type="RETRIEVAL_DOCUMENT"
+        # Tokenizer check (Approx)
+        if len(text) > 10000:
+            print(f"Warning: Text too long ({len(text)} chars). Truncating to 10k.")
+            text = text[:10000]
+
+        for attempt in range(5):
+            try:
+                result = self.client.models.embed_content(
+                    model=MODEL_EMBEDDING,
+                    contents=text,
+                    config=types.EmbedContentConfig(
+                        task_type="RETRIEVAL_DOCUMENT"
+                    )
                 )
-            )
-            return result.embeddings[0].values
-        except Exception as e:
-            print(f"Embedding Error: {e}")
-            return [0.0] * 768
+                return result.embeddings[0].values
+            except Exception as e:
+                if "429" in str(e) or "Resource has been exhausted" in str(e):
+                    print(f"Embedding Rate Limit (429). Retrying in {2**attempt}s...")
+                    time.sleep(2 ** attempt)
+                else:
+                    print(f"Embedding Error: {e}")
+                    return [0.0] * 768
+        return [0.0] * 768
 
     def _cosine_similarity(self, v1, v2):
         """Calculate cosine similarity between two vectors"""
@@ -311,6 +344,8 @@ class UltraEngine:
             chunks = [full_text[i:i+300] for i in range(0, len(full_text), 300)]
             
             for idx, chunk in enumerate(chunks):
+                rate_limiter.wait()
+                
                 vector = self._get_embedding(chunk)
                 db.execute(
                     "INSERT INTO plot_vectors (book_id, ep_num, chunk_id, content, vector_json) VALUES (?,?,?,?,?)",
