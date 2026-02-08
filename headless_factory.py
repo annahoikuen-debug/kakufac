@@ -707,7 +707,7 @@ Task 2: マーケティング素材生成
     async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="標準"):
         """【STEP 5】指定エピソードの自動リライト"""
         rewritten_count = 0
-        semaphore = asyncio.Semaphore(1) 
+        semaphore = asyncio.Semaphore(3) 
         
         eval_map = {e['ep_num']: e for e in evaluations}
         tasks = []
