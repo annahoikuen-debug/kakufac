@@ -27,7 +27,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-MODEL_ULTRALONG = "gemini-2.5-flash"      # Gemini 2.5 Flash (プロット・高品質用)
+MODEL_ULTRALONG = "gemini-3.0-flash-preview"      # Gemini 2.5 Flash (プロット・高品質用)
 MODEL_LITE = "gemma-3-12b-it"             # Gemma 3 12B (量産の馬: 初稿・通常回用)
 MODEL_PRO = "gemma-3-27b-it"              # Gemma 3 27B (エースの筆: 推敲・重要回用)
 MODEL_EMBEDDING = "gemini-embedding-001"  # Gemma Embedding
