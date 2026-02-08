@@ -28,31 +28,14 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
 MODEL_ULTRALONG = "gemini-2.5-flash-lite"       # Gemini 2.5 Flash (プロット・高品質用)
-MODEL_LITE = "gemma-3-12b-it"              # Gemma 3 12B (量産の馬: 初稿・通常回用)
-MODEL_PRO = "gemma-3-27b-it"               # Gemma 3 27B (エースの筆: 推敲・重要回用)
+MODEL_LITE = "gemma-3-12b-it"               # Gemma 3 12B (量産の馬: 初稿・通常回用)
+MODEL_PRO = "gemma-3-27b-it"                # Gemma 3 27B (エースの筆: 推敲・重要回用)
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 REWRITE_THRESHOLD = 70  # リライト閾値
 
 # Global Config: Rate Limits
 MIN_REQUEST_INTERVAL = 0.5
-
-# ==========================================
-# Helper Class: Rate Limiter
-# ==========================================
-class RateLimiter:
-    def __init__(self, interval):
-        self.interval = interval
-        self.last_call = 0
-
-    def wait(self):
-        now = time.time()
-        elapsed = now - self.last_call
-        if elapsed < self.interval:
-            time.sleep(self.interval - elapsed)
-        self.last_call = time.time()
-
-rate_limiter = RateLimiter(MIN_REQUEST_INTERVAL)
 
 # ==========================================
 # プロンプト集約 (PROMPT_TEMPLATES)
@@ -192,6 +175,7 @@ class DatabaseManager:
 
     def _init_tables(self):
         with self._get_conn() as conn:
+            # 修正: cumulative_stress, love_meter, is_catharsis 等の未使用カラムを削除
             conn.executescript('''
                 CREATE TABLE IF NOT EXISTS books (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, genre TEXT, concept TEXT,
@@ -207,9 +191,6 @@ class DatabaseManager:
                     book_id INTEGER, ep_num INTEGER, title TEXT, summary TEXT,
                     main_event TEXT, sub_event TEXT, pacing_type TEXT,
                     tension INTEGER DEFAULT 50, cliffhanger_score INTEGER DEFAULT 0,
-                    stress_level INTEGER DEFAULT 0, cumulative_stress INTEGER DEFAULT 0,
-                    love_meter INTEGER DEFAULT 0,
-                    is_catharsis BOOLEAN DEFAULT 0, catharsis_type TEXT DEFAULT 'なし',
                     status TEXT DEFAULT 'planned', 
                     setup TEXT, conflict TEXT, climax TEXT, resolution TEXT,
                     scenes TEXT,
@@ -274,17 +255,17 @@ class UltraEngine:
             except:
                 return None
 
-    def _validate_world_state(self, current_state, new_state_update):
+    def _validate_world_state(self, current_state, new_state):
         """WorldState矛盾チェックバリデータ"""
-        if not current_state or not new_state_update: return
+        if not current_state or not new_state: return
         
         # 1. 生存フラグチェック
-        if 'is_alive' in current_state and 'is_alive' in new_state_update:
-            if not current_state['is_alive'] and new_state_update['is_alive']:
-                print(f"⚠️ [CRITICAL WARNING] DB State Conflict: Dead character revived! {current_state} vs {new_state_update}")
+        if 'is_alive' in current_state and 'is_alive' in new_state:
+            if not current_state['is_alive'] and new_state['is_alive']:
+                print(f"⚠️ [CRITICAL WARNING] DB State Conflict: Dead character revived! {current_state} vs {new_state}")
         
         # 2. 所持品矛盾チェック (簡易版)
-        if 'inventory' in current_state and 'inventory' in new_state_update:
+        if 'inventory' in current_state and 'inventory' in new_state:
             pass 
 
     def _generate_system_rules(self, mc_profile, style="標準"):
@@ -294,23 +275,8 @@ class UltraEngine:
         return PROMPT_TEMPLATES["system_rules"].format(pronouns=pronouns_json, keywords=keywords_json, monologue_style=monologue, style=style)
 
     # ---------------------------------------------------------
-    # Retry Wrappers for Stability (503対策)
+    # Retry Wrappers for Stability (503対策 & 統一)
     # ---------------------------------------------------------
-    def _generate_with_retry_sync(self, model, contents, config, retries=5, initial_delay=2.0):
-        """同期版: 指数バックオフ付きリトライ"""
-        for attempt in range(retries):
-            try:
-                return self.client.models.generate_content(model=model, contents=contents, config=config)
-            except Exception as e:
-                # 503, 500, 429などを捕捉してリトライ
-                if attempt < retries - 1:
-                    wait_time = initial_delay * (2 ** attempt) + random.uniform(0, 1) # Jitter
-                    print(f"⚠️ API Error (Sync): {e}. Retrying in {wait_time:.1f}s... (Attempt {attempt+1}/{retries})")
-                    time.sleep(wait_time)
-                else:
-                    print(f"❌ API Failed after {retries} attempts.")
-                    raise e
-
     async def _generate_with_retry(self, model, contents, config, retries=5, initial_delay=2.0):
         """非同期版: 指数バックオフ付きリトライ"""
         for attempt in range(retries):
@@ -318,8 +284,14 @@ class UltraEngine:
                 return await self.client.aio.models.generate_content(model=model, contents=contents, config=config)
             except Exception as e:
                 if attempt < retries - 1:
-                    wait_time = initial_delay * (2 ** attempt) + random.uniform(0, 1) # Jitter
+                    is_429 = "429" in str(e) or "ResourceExhausted" in str(e)
+                    base_delay = initial_delay * (2 ** attempt)
+                    if is_429:
+                        base_delay *= 2 # 429の場合はバックオフを強化
+                    
+                    wait_time = base_delay + random.uniform(0, 1) # Jitter
                     print(f"⚠️ API Error (Async): {e}. Retrying in {wait_time:.1f}s... (Attempt {attempt+1}/{retries})")
+                    # 修正: time.sleep -> await asyncio.sleep
                     await asyncio.sleep(wait_time)
                 else:
                     print(f"❌ API Failed after {retries} attempts.")
@@ -329,8 +301,8 @@ class UltraEngine:
     # Core Logic
     # ---------------------------------------------------------
 
-    def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
-        """第1段階: 1話〜13話（セットアップから中盤の転換点まで）の生成"""
+    async def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
+        """第1段階: 1話〜13話（セットアップから中盤の転換点まで）の生成 (Async統一)"""
         print("Step 1: Hyper-Resolution Plot Generation Phase 1 (Ep 1-13)...")
         theme_instruction = f"【最重要テーマ・伏線指示】\nこの物語全体を貫くテーマ: {keywords}"
         
@@ -390,8 +362,8 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
         data1 = None
         for attempt in range(3):
             try:
-                # リトライ付きメソッドを使用
-                res1 = self._generate_with_retry_sync(
+                # 修正: Asyncメソッドに統一
+                res1 = await self._generate_with_retry(
                     model=MODEL_ULTRALONG,
                     contents=prompt1,
                     config=types.GenerateContentConfig(response_mime_type="application/json", safety_settings=self.safety_settings)
@@ -400,12 +372,12 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
                 if data1: break
             except Exception as e:
                 print(f"Plot Phase 1 Error: {e}")
-                time.sleep(5)
+                await asyncio.sleep(5)
         
         return data1
 
-    def generate_universe_blueprint_phase2(self, genre, style, mc_personality, mc_tone, keywords, data1):
-        """第2段階: 14話〜25話の生成（Phase 1の情報を元に並列実行）"""
+    async def generate_universe_blueprint_phase2(self, genre, style, mc_personality, mc_tone, keywords, data1):
+        """第2段階: 14話〜25話の生成（Phase 1の情報を元に並列実行） (Async統一)"""
         print("Step 1 (Parallel): Hyper-Resolution Plot Generation Phase 2 (Ep 14-25)...")
         
         context_summ = "\n".join([f"Ep{p['ep_num']}: {p['resolution'][:50]}..." for p in data1['plots']])
@@ -447,8 +419,8 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
         data2 = None
         for attempt in range(3):
             try:
-                # リトライ付きメソッドを使用
-                res2 = self._generate_with_retry_sync(
+                # 修正: Asyncメソッドに統一
+                res2 = await self._generate_with_retry(
                     model=MODEL_ULTRALONG,
                     contents=prompt2,
                     config=types.GenerateContentConfig(response_mime_type="application/json", safety_settings=self.safety_settings)
@@ -457,7 +429,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
                 if data2: break
             except Exception as e:
                 print(f"Plot Phase 2 Error: {e}")
-                time.sleep(5)
+                await asyncio.sleep(5)
 
         return data2
 
@@ -520,7 +492,6 @@ Blueprint (text only):
                 blueprint_text = ""
                 async with semaphore:
                     try:
-                        # リトライ付きメソッドを使用
                         res = await self._generate_with_retry(
                             model=MODEL_PRO, 
                             contents=design_prompt,
@@ -549,7 +520,6 @@ Blueprint (text only):
                 scene_text = ""
                 async with semaphore:
                     try:
-                        # リトライ付きメソッドを使用
                         res = await self._generate_with_retry(
                             model=MODEL_LITE, 
                             contents=write_prompt,
@@ -565,10 +535,11 @@ Blueprint (text only):
                 current_text_tail = cleaned_part[-200:] # 次のコンテキスト用に更新
 
                 # --- Step 4: Self-Update (Gemma 3 12B) ---
+                # 修正: World Stateの全体を出力させ、整合性を担保する
                 update_prompt = f"""
 【Role: State Manager (Gemma 3 12B)】
-以下のシーン本文を読み、World State（所持品、パラメータ、生死など）の更新差分のみをJSONで出力せよ。
-変更がない場合は空のJSONを出力すること。
+以下のシーン本文を読み、World State（所持品、パラメータ、生死など）の最新状態を確定させ、**すべての項目を含んだ完全なJSON**を出力せよ。
+差分更新ではなく、マージ済みの完全な状態を返せ。
 
 【Current State】
 {state_str}
@@ -578,21 +549,23 @@ Blueprint (text only):
 
 【Output Format】
 ```json
-{{ "updated_state": {{ ... }} }}
+{{ "new_world_state": {{ ... }} }}
 """ 
                 async with semaphore:
                     try:
-                        # リトライ付きメソッドを使用
+                        # 修正: Gemma 3はJSONモード未対応のため、configからresponse_mime_typeを除去
                         res = await self._generate_with_retry(
                             model=MODEL_LITE,
                             contents=update_prompt,
-                            config=types.GenerateContentConfig(response_mime_type="application/json", safety_settings=self.safety_settings)
+                            config=types.GenerateContentConfig(safety_settings=self.safety_settings)
                         )
                         state_data = self._clean_json(res.text)
                         if state_data:
-                            updated_fragment = state_data.get('updated_state', {})
-                            self._validate_world_state(current_world_state, updated_fragment)
-                            current_world_state.update(updated_fragment)
+                            new_state = state_data.get('new_world_state', {})
+                            # 修正: 全体状態のバリデーションと置換
+                            self._validate_world_state(current_world_state, new_state)
+                            if new_state:
+                                current_world_state = new_state
                         await asyncio.sleep(0.1) # TPM Control
                     except Exception as e:
                         print(f"State Update Error Ep{ep_num}-{part_idx}: {e}")
@@ -608,14 +581,22 @@ Blueprint (text only):
 
         return {"chapters": full_chapters}
 
-    async def _summarize_chunk(self, text_chunk, start_ep, end_ep):
-        """【内部ヘルパー】エピソード群を圧縮要約する"""
+    async def _summarize_chunk(self, text_chunk, start_ep, end_ep, prev_summary="", next_summary=""):
+        """【内部ヘルパー】エピソード群を圧縮要約する（スライディングコンテキスト対応）"""
+        # 修正: 前後の文脈を含めたプロンプトに変更
         prompt = f"""
 【Task: Context Compression】 以下の第{start_ep}話〜第{end_ep}話の本文を、物語の重要ポイント（伏線・感情・結末）を漏らさず、全体で1000文字程度に「濃縮要約」せよ。 あらすじではなく、マーケティング分析（キャラの魅力、構成の評価）に使える「詳細なダイジェスト」を作成すること。
 
-【Text Chunk】 {text_chunk} """
+【Previous Context (Before Ep{start_ep})】
+{prev_summary}
+
+【Text Chunk (Ep{start_ep}-{end_ep})】
+{text_chunk} 
+
+【Next Context (After Ep{end_ep})】
+{next_summary}
+"""
         try:
-            # リトライ付きメソッドを使用
             res = await self._generate_with_retry(
                 model=MODEL_LITE,
                 contents=prompt,
@@ -644,9 +625,15 @@ Blueprint (text only):
             start_ep = chunk[0]['ep_num']
             end_ep = chunk[-1]['ep_num']
             
+            # 修正: スライディングウィンドウ（前後1話分のサマリを取得）
+            prev_summary = chapters[i-1]['summary'] if i > 0 else ""
+            next_idx = i + chunk_size
+            next_summary = chapters[next_idx]['summary'] if next_idx < len(chapters) else ""
+            
             # 本文結合
             full_text = "\n".join([f"Ep{c['ep_num']} {c['title']}:\n{c['content']}" for c in chunk])
-            summary_tasks.append(self._summarize_chunk(full_text, start_ep, end_ep))
+            # 修正: 前後のコンテキストを渡す
+            summary_tasks.append(self._summarize_chunk(full_text, start_ep, end_ep, prev_summary, next_summary))
         
         # 並列実行待機
         compressed_summaries = await asyncio.gather(*summary_tasks)
@@ -667,12 +654,11 @@ Task 2: マーケティング素材生成
         data = None
         for attempt in range(3):
             try:
-                # リトライ付きメソッドを使用
+                # 修正: Gemma 3はJSONモード未対応のため、configからresponse_mime_typeを除去
                 res = await self._generate_with_retry(
                     model=MODEL_LITE,
                     contents=prompt,
                     config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
                         safety_settings=self.safety_settings
                     )
                 )
@@ -687,8 +673,16 @@ Task 2: マーケティング素材生成
         if not data: return [], [], None
 
         evals = data.get('evaluations', [])
-        rewrite_target_eps = [e['ep_num'] for e in evals if e.get('total_score', 0) < REWRITE_THRESHOLD]
         assets = data.get('marketing_assets', {})
+        
+        # 修正: リライト対象選定ロジックの多角化
+        # total_score < 70 OR hook < 10 OR character < 10
+        rewrite_target_eps = []
+        for e in evals:
+            scores = e.get('scores', {})
+            total = e.get('total_score', 0)
+            if total < REWRITE_THRESHOLD or scores.get('hook', 0) < 10 or scores.get('character', 0) < 10:
+                rewrite_target_eps.append(e['ep_num'])
         
         # DB更新
         existing = db.fetch_one("SELECT marketing_data FROM books WHERE id=?", (book_id,))
@@ -775,11 +769,11 @@ Task 2: マーケティング素材生成
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
             scenes_json = json.dumps(p.get('scenes', []), ensure_ascii=False)
             db.execute(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress_level, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, status, scenes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (bid, p['ep_num'], full_title, main_ev, 
                  p.get('setup'), p.get('conflict'), p.get('climax'), p.get('resolution'), 
-                 p.get('tension', 50), p.get('stress_level', 0), 'planned', scenes_json)
+                 p.get('tension', 50), 'planned', scenes_json)
             )
             saved_plots.append(p)
         return bid, saved_plots
@@ -791,11 +785,11 @@ Task 2: マーケティング素材生成
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
             scenes_json = json.dumps(p.get('scenes', []), ensure_ascii=False)
             db.execute(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress_level, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, status, scenes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (book_id, p['ep_num'], full_title, main_ev, 
                  p.get('setup'), p.get('conflict'), p.get('climax'), p.get('resolution'), 
-                 p.get('tension', 50), p.get('stress_level', 0), 'planned', scenes_json)
+                 p.get('tension', 50), 'planned', scenes_json)
             )
             saved_plots.append(p)
         return saved_plots
@@ -824,7 +818,8 @@ def mc_profile_str(mc_profile): return f"{mc_profile.get('name')} (性格:{mc_pr
 
 async def task_plot_gen_phase2(engine, bid, genre, style, mc_personality, mc_tone, keywords, data1):
     print(f"Parallel Task: Generating Phase 2 for Book ID {bid}...")
-    data2 = engine.generate_universe_blueprint_phase2(genre, style, mc_personality, mc_tone, keywords, data1)
+    # 修正: Async呼び出し
+    data2 = await engine.generate_universe_blueprint_phase2(genre, style, mc_personality, mc_tone, keywords, data1)
 
     if data2 and 'plots' in data2:
         saved_plots_p2 = engine.save_additional_plots_to_db(bid, data2)
@@ -853,7 +848,8 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
             except: pass
 
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
-    semaphore = asyncio.Semaphore(1)
+    # 修正: セマフォを10に引き上げ (動的管理)
+    semaphore = asyncio.Semaphore(10)
 
     tasks = []
     print(f"Starting Machine-Gun Parallel Writing (Ep {start_ep} - {end_ep})...")
@@ -1055,7 +1051,8 @@ async def main():
             seed = load_seed()
             
             print("Step 1a: Generating Plot Phase 1...")
-            data1 = engine.generate_universe_blueprint_phase1(
+            # 修正: Async await呼び出し
+            data1 = await engine.generate_universe_blueprint_phase1(
                 seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
             )
             
