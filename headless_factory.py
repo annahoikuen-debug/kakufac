@@ -527,7 +527,7 @@ Blueprint (text only):
                             config=types.GenerateContentConfig(safety_settings=self.safety_settings)
                         )
                         blueprint_text = res.text
-                        await asyncio.sleep(2) # TPM Control
+                        await asyncio.sleep(0.1) # TPM Control
                     except Exception as e:
                         print(f"Design Error Ep{ep_num}-{part_idx}: {e}")
                         blueprint_text = scene_plot # Fallback
@@ -556,7 +556,7 @@ Blueprint (text only):
                             config=types.GenerateContentConfig(safety_settings=self.safety_settings)
                         )
                         scene_text = res.text
-                        await asyncio.sleep(2) # TPM Control
+                        await asyncio.sleep(0.1) # TPM Control
                     except Exception as e:
                         print(f"Writing Error Ep{ep_num}-{part_idx}: {e}")
 
@@ -593,7 +593,7 @@ Blueprint (text only):
                             updated_fragment = state_data.get('updated_state', {})
                             self._validate_world_state(current_world_state, updated_fragment)
                             current_world_state.update(updated_fragment)
-                        await asyncio.sleep(1) # TPM Control
+                        await asyncio.sleep(0.1) # TPM Control
                     except Exception as e:
                         print(f"State Update Error Ep{ep_num}-{part_idx}: {e}")
 
@@ -682,7 +682,7 @@ Task 2: マーケティング素材生成
                 if attempt == 2:
                     print(f"Analysis & Marketing Error: {e}")
                     return [], [], None
-                await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(0.1 ** attempt)
 
         if not data: return [], [], None
 
@@ -1061,7 +1061,7 @@ async def main():
             
             if not data1: 
                 print("Plot Gen Phase 1 failed. Retrying in 10s...")
-                await asyncio.sleep(10)
+                await asyncio.sleep(1)
                 continue
 
             bid, plots_p1 = engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
@@ -1102,13 +1102,13 @@ async def main():
             send_email(zip_bytes, title)
             print(f"Mission Complete: {title}. Sleeping for next run...")
             
-            await asyncio.sleep(60) 
+            await asyncio.sleep(10) 
 
         except Exception as e:
             print(f"Pipeline Critical Error: {e}")
             import traceback
             traceback.print_exc()
-            await asyncio.sleep(60)
+            await asyncio.sleep(10)
 
 if __name__ == "__main__":
     asyncio.run(main())
