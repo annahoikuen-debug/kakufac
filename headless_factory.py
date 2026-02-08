@@ -38,7 +38,7 @@ REWRITE_THRESHOLD = 70  # リライト閾値
 # Global Config: Rate Limits
 EMBEDDING_RPM = 100
 EMBEDDING_TPM = 30000
-MIN_REQUEST_INTERVAL = 1.0
+MIN_REQUEST_INTERVAL = 0.5
 
 # ==========================================
 # Helper Class: Rate Limiter
@@ -762,7 +762,7 @@ Task 2: マーケティング素材生成
     async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="標準"):
         """【STEP 5】指定エピソードの自動リライト（スコア不足項目への特化指示）"""
         rewritten_count = 0
-        semaphore = asyncio.Semaphore(1) # TPM制限下でのリライト実行のため1に設定
+        semaphore = asyncio.Semaphore(2) # TPM制限下でのリライト実行のため1に設定
         
         # 評価データのマップ化
         eval_map = {e['ep_num']: e for e in evaluations}
