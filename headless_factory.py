@@ -27,7 +27,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-MODEL_ULTRALONG = "gemini-2.5-flash-lite"       # Gemini 2.5 Flash (プロット・高品質用)
+MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 2.5 Flash (プロット・高品質用)
 MODEL_LITE = "gemma-3-12b-it"               # Gemma 3 12B (量産の馬: 初稿・通常回用)
 MODEL_PRO = "gemma-3-27b-it"                # Gemma 3 27B (エースの筆: 推敲・重要回用)
 
@@ -175,7 +175,6 @@ class DatabaseManager:
 
     def _init_tables(self):
         with self._get_conn() as conn:
-            # 修正: cumulative_stress, love_meter, is_catharsis 等の未使用カラムを削除
             conn.executescript('''
                 CREATE TABLE IF NOT EXISTS books (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, genre TEXT, concept TEXT,
@@ -275,23 +274,33 @@ class UltraEngine:
         return PROMPT_TEMPLATES["system_rules"].format(pronouns=pronouns_json, keywords=keywords_json, monologue_style=monologue, style=style)
 
     # ---------------------------------------------------------
-    # Retry Wrappers for Stability (503対策 & 統一)
+    # Retry Wrappers for Stability (503対策 & 統一 & 429対策強化)
     # ---------------------------------------------------------
-    async def _generate_with_retry(self, model, contents, config, retries=5, initial_delay=2.0):
-        """非同期版: 指数バックオフ付きリトライ"""
+    async def _generate_with_retry(self, model, contents, config, retries=10, initial_delay=5.0):
+        """非同期版: 指数バックオフ付きリトライ (429 Retry-After対応)"""
         for attempt in range(retries):
             try:
                 return await self.client.aio.models.generate_content(model=model, contents=contents, config=config)
             except Exception as e:
                 if attempt < retries - 1:
-                    is_429 = "429" in str(e) or "ResourceExhausted" in str(e)
-                    base_delay = initial_delay * (2 ** attempt)
-                    if is_429:
-                        base_delay *= 2 # 429の場合はバックオフを強化
+                    error_str = str(e)
+                    is_429 = "429" in error_str or "ResourceExhausted" in error_str
                     
-                    wait_time = base_delay + random.uniform(0, 1) # Jitter
+                    # 基本待機時間
+                    wait_time = initial_delay * (1.5 ** attempt) + random.uniform(0, 1) # 指数を少し緩やかに
+                    
+                    if is_429:
+                        # エラーメッセージから待機時間を解析
+                        match = re.search(r'retry in (\d+\.?\d*)s', error_str)
+                        if match:
+                            server_wait = float(match.group(1))
+                            wait_time = server_wait + 5.0 # 余裕を持って+5秒
+                            print(f"⏳ Quota Limit Reached. Sleeping for {wait_time:.2f}s (Server requested {server_wait}s)...")
+                        else:
+                            # 429だが時間指定がない場合、回数に応じて大幅に増やす
+                            wait_time = 30.0 * (attempt + 1)
+                            
                     print(f"⚠️ API Error (Async): {e}. Retrying in {wait_time:.1f}s... (Attempt {attempt+1}/{retries})")
-                    # 修正: time.sleep -> await asyncio.sleep
                     await asyncio.sleep(wait_time)
                 else:
                     print(f"❌ API Failed after {retries} attempts.")
@@ -701,7 +710,7 @@ Task 2: マーケティング素材生成
     async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="標準"):
         """【STEP 5】指定エピソードの自動リライト"""
         rewritten_count = 0
-        semaphore = asyncio.Semaphore(10) 
+        semaphore = asyncio.Semaphore(3) 
         
         eval_map = {e['ep_num']: e for e in evaluations}
         tasks = []
