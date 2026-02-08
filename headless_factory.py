@@ -18,7 +18,7 @@ from google import genai
 from google.genai import types
 
 # ==========================================
-# 0. 設定 & 2026年仕様 (Headless / No Embedding)
+# 0. 設定 & 2026年仕様 (Headless / Embeddingなし)
 # ==========================================
 # 環境変数から取得
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -27,18 +27,14 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-# プロット作成や長文脈理解にはGemini 2.5 Flashを使用
-MODEL_ULTRALONG = "gemini-2.5-flash"
-# 量産・論理処理・状態管理にはGemma 3 12B (高速・低コスト)
-MODEL_LITE = "gemma-3-12b-it"
-# 推敲・設計図作成・重要シーンにはGemma 3 27B (高品質)
-MODEL_PRO = "gemma-3-27b-it"
+MODEL_ULTRALONG = "gemini-2.5-flash-lite"      # Gemini 2.5 Flash (プロット・高品質用)
+MODEL_LITE = "gemma-3-12b-it"             # Gemma 3 12B (量産の馬: 初稿・通常回用)
+MODEL_PRO = "gemma-3-27b-it"              # Gemma 3 27B (エースの筆: 推敲・重要回用)
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 REWRITE_THRESHOLD = 70  # リライト閾値
 
 # Global Config: Rate Limits
-# API制限を考慮した待機時間
 MIN_REQUEST_INTERVAL = 0.5
 
 # ==========================================
@@ -248,7 +244,7 @@ class DatabaseManager:
 db = DatabaseManager(DB_FILE)
 
 # ==========================================
-# 2. ULTRA Engine (Autopilot & No Embedding)
+# 2. ULTRA Engine (Autopilot & Mobile Opt)
 # ==========================================
 class UltraEngine:
     def __init__(self, api_key):
@@ -289,6 +285,7 @@ class UltraEngine:
         
         # 2. 所持品矛盾チェック (簡易版)
         if 'inventory' in current_state and 'inventory' in new_state_update:
+            # ここにロジックを追加可能
             pass 
 
     def _generate_system_rules(self, mc_profile, style="標準"):
@@ -315,6 +312,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
 【構成指針: 2段階生成ロジック】
 - 今回は第1段階: 1話〜13話（セットアップから中盤の転換点まで）を作成。
 - 各話構成: 「起(Intro)・承(Development)・転(Twist)・結(Conclusion)・引き(Cliffhanger)」の5要素を記述。
+- インデックス: Embedding用に各話を「Scene 1(起承)」「Scene 2(転)」「Scene 3(結引き)」に分類可能にせよ。
 """
 
         # --- Phase 1: 1-13話 ---
@@ -427,10 +425,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
         return data2
 
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="標準", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
-        """
-        マイクロ執筆エンジン (Gemma 3 専用パイプライン: Embeddingなし)
-        工程: Context Sync -> Design (27B) -> Writing (12B) -> Self-Update (12B)
-        """
+        """マイクロ執筆エンジン (Gemma 3 専用パイプライン: 12B/27B連携)"""
         
         start_idx = start_ep - 1
         all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
@@ -441,7 +436,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
         full_chapters = []
         
         # 1. 状況同期 (Context Sync - Gemma 3 12B)
-        # 初期状態と前話のロード（DBから直接取得）
+        # 初期状態と前話のロード
         current_world_state = {}
         prev_ep_row = db.fetch_one("SELECT world_state, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
         
@@ -460,7 +455,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
             print(f"Gemma 3 Pipeline Writing Ep {ep_num}...")
             
             full_content = ""
-            current_text_tail = prev_summary # 開始時は前話サマリを使用
+            current_text_tail = prev_summary # 開始時は前話サマリ
             
             scenes = plot.get('scenes', [plot.get('setup',''), plot.get('conflict',''), plot.get('climax','') + plot.get('resolution','')])
             
@@ -598,6 +593,14 @@ async def analyze_and_create_assets(self, book_id):
     print(f"Context Compressed: {len(master_context)} chars (from approx {len(chapters)*2000} chars)")
 
     # 3. 圧縮コンテキストを用いた最終分析
+    # Safety Settings
+    safety_settings = [
+        types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
+        types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+        types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+        types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+    ]
+
     prompt = f"""
 あなたはWeb小説の敏腕編集者兼マーケターです。 全25話の原稿が出揃いました。 以下は物語全体の「濃縮ダイジェスト」です。これに基づき、以下のタスクを一括実行してください。
 
@@ -716,7 +719,7 @@ def save_blueprint_to_db(self, data, genre, style_dna_str):
     monologue_val = data['mc_profile'].get('monologue_style', '')
     db.execute("INSERT INTO characters (book_id, name, role, dna_json, monologue_style) VALUES (?,?,?,?,?)", (bid, data['mc_profile']['name'], '主人公', c_dna, monologue_val))
     
-    # Vector DB連携なし (Embedding保存はスキップ)
+    # Vector DB連携なし
     saved_plots = []
     for p in data['plots']:
         full_title = f"第{p['ep_num']}話 {p['title']}"
@@ -802,7 +805,7 @@ for p in plots:
 # 全プロットリストは渡すが、write_episodesが範囲をフィルタリングする
 full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
 
-# 同時実行数制御用セマフォ (TPM制限下で並列数を制御)
+# 同時実行数制御用セマフォ (1: Low TPM)
 semaphore = asyncio.Semaphore(1)
 
 tasks = []
@@ -815,9 +818,12 @@ for p in target_plots:
     ep_num = p['ep_num']
     tension = p.get('tension', 50)
     
-    # モデルはwrite_episodes内部の4ステップロジック(12B+27B)で固定されるため、
-    # ここではtarget_model変数は主にログや将来的な拡張のために残す
+    # Tension連動型モデルセレクター
     target_model = MODEL_LITE
+    if tension >= 80 or ep_num == 1 or ep_num == 25:
+        target_model = MODEL_PRO # エースの筆
+    else:
+        target_model = MODEL_LITE # 量産の馬
     
     # Async Taskの作成 (全話一斉発射)
     tasks.append(engine.write_episodes(
@@ -951,7 +957,7 @@ with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
             meta += f"第{ill['ep_num']}話: {ill['prompt']}\n"
         z.writestr("marketing_assets.txt", meta)
 
-        # marketing_raw.json も保存
+        # marketing_raw.json も保存（Streamlit版に準拠）
         try:
             z.writestr("marketing_raw.json", json.dumps(marketing_data, ensure_ascii=False))
         except: pass
@@ -1003,14 +1009,14 @@ while True:
             await asyncio.sleep(10)
             continue
 
-        # Save Phase 1 (Embeddingはスキップ)
+        # Save Phase 1
         bid, plots_p1 = engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
         print(f"Phase 1 Saved. ID: {bid}")
         
         # --- Parallel Execution: [Write Phase 1] vs [Generate Phase 2] ---
         print("Step 2: Starting Parallel Execution (Write P1 vs Gen P2)...")
         
-        # Task A: Write Ep 1-13 (Async Machine-Gun)
+        # Task A: Write Ep 1-13
         task_write_p1 = asyncio.create_task(
             task_write_batch(engine, bid, start_ep=1, end_ep=13)
         )
