@@ -30,7 +30,7 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 MODEL_ULTRALONG = "gemini-2.5-flash-lite"      # Gemini 2.5 Flash (プロット・高品質用)
 MODEL_LITE = "gemma-3-12b-it"             # Gemma 3 12B (量産の馬: 初稿・通常回用)
 MODEL_PRO = "gemma-3-27b-it"              # Gemma 3 27B (エースの筆: 推敲・重要回用)
-MODEL_EMBEDDING = "gemma-3-1b-it"  # Gemma Embedding
+MODEL_EMBEDDING = "gemini-embedding-001"  # Gemma Embedding
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 REWRITE_THRESHOLD = 70  # リライト閾値
