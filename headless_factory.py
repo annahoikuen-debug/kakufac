@@ -40,6 +40,76 @@ DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 MIN_REQUEST_INTERVAL = 0.5
 
 # ==========================================
+# JSONリソースの初期化 (コピペ実行用)
+# ==========================================
+def ensure_style_resources():
+    """必要なスタイル定義JSONが存在しない場合、デフォルトを作成する"""
+    if not os.path.exists("author_styles.json"):
+        data = {
+            "styles": [
+                {
+                    "id": "style_serious_fantasy",
+                    "name": "無職転生風",
+                    "avg_sentence_length": "中程度〜長め",
+                    "preferred_vocabulary": ["後悔", "本気", "泥臭い", "魔術", "ルーデウス"],
+                    "metaphor_frequency": "中程度（生活感のある比喩）",
+                    "prompt_instruction": "地の文は『過去を回想する手記』のような落ち着いたトーンで記述せよ。主人公の心理描写は、弱さや欲望を隠さず赤裸々に描け。"
+                },
+                {
+                    "id": "style_psychological_loop",
+                    "name": "リゼロ風",
+                    "avg_sentence_length": "極端（非常に短い絶叫と、息継ぎのない長文の混在）",
+                    "preferred_vocabulary": ["絶望", "死", "魔女", "運命", "叫び"],
+                    "metaphor_frequency": "高い（感情的・身体的な苦痛の表現）",
+                    "prompt_instruction": "絶望的な状況では、畳み掛けるような反復表現を多用せよ。感情描写は粘着質に、執拗に繰り返せ。"
+                },
+                {
+                    "id": "style_military_rational",
+                    "name": "幼女戦記風",
+                    "avg_sentence_length": "長め（論理的・説明的）",
+                    "preferred_vocabulary": ["効率", "費用対効果", "ドクトリン", "資源", "合理性"],
+                    "metaphor_frequency": "低い（硬質な熟語優先）",
+                    "prompt_instruction": "感情を排した『報告書』のようなドライな文体を維持せよ。カタカナ語（経済・軍事用語）を漢字の中に混ぜろ。"
+                },
+                 {
+                    "id": "style_web_standard",
+                    "name": "なろうテンプレ標準",
+                    "avg_sentence_length": "短い",
+                    "preferred_vocabulary": ["ステータス", "最強", "チート", "ざまぁ"],
+                    "metaphor_frequency": "低い",
+                    "prompt_instruction": "スマホでの可読性を最優先し、改行を多用せよ。難しい表現は避け、テンポよく進行させろ。"
+                }
+            ]
+        }
+        with open("author_styles.json", "w", encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+    if not os.path.exists("style_samples.json"):
+        data = {
+            "samples": [
+                {
+                    "id": "style_serious_fantasy",
+                    "text": "　俺は杖を握りしめ、泥にまみれた自分の手を見つめた。\n　前世では、こんな風に必死になることなんてなかった。\n「……よし、やるか」\n　俺は深く息を吐き出すと、魔力を練り上げた。下腹部に熱が集まる感覚。かつては性的な衝動にしか使わなかったこの熱を、今は生存本能として制御している。",
+                    "analysis": "内省的で、過去の自分との対比を重視する文体。"
+                },
+                {
+                    "id": "style_psychological_loop",
+                    "text": "　――熱い。熱い熱い熱い熱い熱い。\n　脳髄が沸騰するような、理不尽な暴力が俺を襲う。\n「あ、が……ぁ！？」\n　声にならない絶叫。視界が真っ赤に染まる。\n　死ぬ。また死ぬのか。何も成し遂げられず、誰も救えず？\n　嫌だ。それだけは、絶対に。",
+                    "analysis": "反復による強調と、切迫した身体感覚の描写。"
+                },
+                {
+                    "id": "style_military_rational",
+                    "text": "　結論から言えば、それは極めて非効率的な資源の浪費であった。\n　帝国軍参謀本部は、政治的プロパガンダ効果を優先し、前線の兵站維持コストを軽視したのだ。\n「狂気の沙汰だな」\n　眼下の戦場を見下ろし、小さく舌打ちする。人的資本の摩耗を度外視したドクトリンなど、到底容認できるものではない。",
+                    "analysis": "客観的視点と硬い語彙による状況分析。"
+                }
+            ]
+        }
+        with open("style_samples.json", "w", encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+ensure_style_resources()
+
+# ==========================================
 # Pydantic Schemas (構造化出力用)
 # ==========================================
 class PlotScene(BaseModel):
@@ -318,7 +388,6 @@ class DynamicBibleManager:
         if not row:
             return WorldState(immutable="{}", mutable="{}", revealed=[])
         try:
-            # DBには文字列で保存されているため、Pydanticのstrフィールドにはそのまま渡す（json.loadsしない）
             return WorldState(
                 immutable=row['immutable'] if row['immutable'] else "{}",
                 mutable=row['mutable'] if row['mutable'] else "{}",
@@ -332,8 +401,8 @@ class DynamicBibleManager:
             "INSERT INTO bible (book_id, immutable, mutable, revealed, last_updated) VALUES (?,?,?,?,?)",
             (
                 self.book_id,
-                new_state.immutable, # すでにJSON文字列
-                new_state.mutable,   # すでにJSON文字列
+                new_state.immutable, 
+                new_state.mutable,   
                 json.dumps(new_state.revealed, ensure_ascii=False),
                 datetime.datetime.now().isoformat()
             )
@@ -366,7 +435,7 @@ class AdaptiveRateLimiter:
 
     async def report_success(self):
         async with self.lock:
-            if self.limit < 10: # Max limit cap
+            if self.limit < 10: 
                 self.limit += 1
                 pass
 
@@ -375,7 +444,7 @@ class AdaptiveRateLimiter:
             old_limit = self.limit
             self.limit = max(self.min_limit, self.limit // 2)
             print(f"📉 Circuit Breaker Triggered: Limit reduced {old_limit} -> {self.limit}")
-            await asyncio.sleep(5) # Cooldown
+            await asyncio.sleep(5) 
 
 # ==========================================
 # 4. ULTRA Engine (Autopilot & Mobile Opt)
@@ -391,12 +460,39 @@ class UltraEngine:
             types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
         ]
 
+    # --- 新規追加メソッド: スタイル設定読み込み ---
+    def _load_style_config(self, style_id):
+        try:
+            with open("author_styles.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+                styles = data.get("styles", [])
+                return next((s for s in styles if s["id"] == style_id), None)
+        except Exception as e:
+            print(f"Warning: Failed to load author_styles.json: {e}")
+            return None
+
+    def _load_few_shot_samples(self, style_id):
+        try:
+            with open("style_samples.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+                samples = data.get("samples", [])
+                # 指定IDのサンプルを探す、なければランダムに3つ
+                target_samples = [s for s in samples if s["id"] == style_id]
+                if not target_samples:
+                    target_samples = random.sample(samples, min(len(samples), 3))
+                else:
+                    target_samples = target_samples[:3]
+                return target_samples
+        except Exception as e:
+            print(f"Warning: Failed to load style_samples.json: {e}")
+            return []
+    # ---------------------------------------------
+
     def _generate_system_rules(self, mc_profile, style="標準"):
         # プロファイルが辞書型であることを想定して処理
         p_data = mc_profile.get('pronouns', {})
         k_data = mc_profile.get('keyword_dictionary', {})
         
-        # 文字列(JSON)で渡された場合は辞書に戻す
         if isinstance(p_data, str):
             try: p_data = json.loads(p_data)
             except: pass
@@ -407,7 +503,33 @@ class UltraEngine:
         pronouns_json = json.dumps(p_data, ensure_ascii=False)
         keywords_json = json.dumps(k_data, ensure_ascii=False)
         monologue = mc_profile.get('monologue_style', '標準')
-        return PROMPT_TEMPLATES["system_rules"].format(pronouns=pronouns_json, keywords=keywords_json, monologue_style=monologue, style=style)
+        
+        base_rule = PROMPT_TEMPLATES["system_rules"].format(pronouns=pronouns_json, keywords=keywords_json, monologue_style=monologue, style=style)
+
+        # --- スタイル上書き & Few-Shot ロジック ---
+        style_config = self._load_style_config(style)
+        style_override = ""
+        few_shot_section = ""
+
+        if style_config:
+            style_override = f"""
+【SPECIAL STYLE OVERRIDE: {style_config.get('name', style)}】
+以下の文体ルールを最優先で適用せよ:
+1. [Sentence Length] 平均文長: {style_config.get('avg_sentence_length', '指定なし')}
+2. [Vocabulary] 優先語彙: {', '.join(style_config.get('preferred_vocabulary', []))}
+3. [Metaphor] 比喩頻度: {style_config.get('metaphor_frequency', '指定なし')}
+4. [Instruction] {style_config.get('prompt_instruction', '')}
+"""
+            # Few-Shotサンプルの取得
+            samples = self._load_few_shot_samples(style)
+            if samples:
+                few_shot_section = "\n【FEW-SHOT LEARNING: 以下の文体を徹底模倣せよ】\n"
+                for i, sample in enumerate(samples, 1):
+                    # 「分析結果のみをコンテキストに保持」という指示に基づき、分析コメントも付記
+                    analysis = sample.get('analysis', '特徴的な文体')
+                    few_shot_section += f"[Sample {i} (特徴: {analysis})]\n{sample['text']}\n\n"
+
+        return base_rule + style_override + few_shot_section
 
     # ---------------------------------------------------------
     # Retry Wrappers for Stability & Circuit Breaker
@@ -474,7 +596,6 @@ class UltraEngine:
             )
             data = json.loads(res.text)
             
-            # 文字列として返されたJSONフィールドを辞書に変換して整合性を保つ
             if 'mc_profile' in data:
                 if isinstance(data['mc_profile'].get('pronouns'), str):
                     try:
@@ -611,7 +732,6 @@ Task:
         system_rules = self._generate_system_rules(book_data['mc_profile'], style=style_dna_str)
         mc_name = book_data['mc_profile'].get('name', '主人公')
         
-        # Vocal Persona Setup
         vocab_filter = f"""
 【Vocal Persona: {mc_name}】
 - 知識レベル: 一般人レベル（専門用語は知らないこと）
@@ -780,17 +900,13 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             )
             data = MarketingAssets.model_validate_json(res.text)
             
-            # 文字列を辞書にパースしてダウンストリーム互換性を確保
             marketing_assets_dict = {}
             if data.marketing_assets:
                 try:
                     marketing_assets_dict = json.loads(data.marketing_assets)
                 except: pass
             
-            # --- 構造改革: 閾値廃止と論理判定への移行 ---
             rewrite_target_eps = []
-            
-            # Pydanticモデルから辞書形式への変換（EvaluationItem -> dict）
             evaluations_list = [e.model_dump() for e in data.evaluations]
             
             for evaluation in evaluations_list:
@@ -798,7 +914,6 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
                 if evaluation.get('total_score', 0) < 60: 
                      rewrite_target_eps.append(ep_num)
             
-            # DB更新 (辞書をダンプ)
             db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(marketing_assets_dict, ensure_ascii=False), book_id))
             
             return evaluations_list, rewrite_target_eps, marketing_assets_dict
@@ -818,14 +933,12 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
         bible_manager = DynamicBibleManager(book_data['book_id'])
 
         for ep_id in target_ep_ids:
-            # 1. 整合性チェック (Consistency Check)
             chapter_row = db.fetch_one("SELECT content FROM chapters WHERE book_id=? AND ep_num=?", (book_data['book_id'], ep_id))
             consistency = await self.evaluate_consistency(chapter_row['content'], bible_manager)
             
             if not consistency.rewrite_needed and ep_id not in target_ep_ids:
                 continue
 
-            # 2. マージ: マーケティング指摘 + 整合性エラー
             eval_data = eval_map.get(ep_id, {})
             marketing_instruction = eval_data.get('improvement_point', "")
             consistency_instruction = f"矛盾修正: {','.join(consistency.fatal_errors)}" if consistency.fatal_errors else ""
@@ -852,7 +965,6 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
         return rewritten_count
 
     def save_blueprint_to_db(self, data, genre, style_dna_str):
-        # Pydanticモデルから辞書へ
         if isinstance(data, dict): data_dict = data
         else: data_dict = data.model_dump()
         
@@ -873,7 +985,6 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
         monologue_val = data_dict['mc_profile'].get('monologue_style', '')
         db.execute("INSERT INTO characters (book_id, name, role, dna_json, monologue_style) VALUES (?,?,?,?,?)", (bid, data_dict['mc_profile']['name'], '主人公', c_dna, monologue_val))
         
-        # Initial Bible Creation
         db.execute("INSERT INTO bible (book_id, immutable, mutable, revealed, last_updated) VALUES (?,?,?,?,?)",
                    (bid, "{}", "{}", "[]", datetime.datetime.now().isoformat()))
 
@@ -894,7 +1005,6 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
 
     def save_additional_plots_to_db(self, book_id, data_p2):
         saved_plots = []
-        # data_p2 is dict (json.loads result)
         for p in data_p2['plots']:
             full_title = f"第{p['ep_num']}話 {p['title']}"
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
@@ -915,8 +1025,6 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             
         for ch in chapters_list:
             content = TextFormatter.format(ch['content'])
-            # Pydanticモデルの変更によりworld_state内のJSONは既に文字列だが、
-            # ここでは全体の辞書をダンプして保存する
             w_state = json.dumps(ch.get('world_state', {}), ensure_ascii=False) if ch.get('world_state') else ""
 
             db.execute(
@@ -1024,7 +1132,7 @@ def load_seed():
             "personality": "冷静沈着",
             "tone": "俺",
             "hook_text": "配信切り忘れで世界最強がバレる",
-            "style": "標準"
+            "style": "style_serious_fantasy" # デモ用にデフォルトスタイルを変更
         }
 
     with open("story_seeds.json", "r", encoding='utf-8') as f:
@@ -1041,7 +1149,7 @@ def load_seed():
             "personality": tmpl['mc_profile'],
             "tone": "俺",
             "hook_text": tmpl['hook'],
-            "style": "標準"
+            "style": "style_serious_fantasy" # デモ用に固定（本来はJSONからランダム等）
         }
 
 def create_zip_package(book_id, title, marketing_data):
@@ -1062,7 +1170,6 @@ def create_zip_package(book_id, title, marketing_data):
         try:
             dna = json.loads(mc_char['dna_json'])
             keyword_dict = dna.get('keyword_dictionary', {})
-            # もしJSON文字列として保存されていた場合の対策
             if isinstance(keyword_dict, str):
                 keyword_dict = json.loads(keyword_dict)
         except: pass
