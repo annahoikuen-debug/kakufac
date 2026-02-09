@@ -1217,7 +1217,7 @@ async def create_zip_package(book_id, title, marketing_data):
             try:
                 dna = json.loads(char['dna_json'])
                 for k, v in dna.items():
-                    if k not in ['name', 'role', 'monologue_style']:
+                if k not in ['name', 'role', 'monologue_style']:
                         val_str = json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)
                         setting_txt += f"  - {k}: {val_str}\n"
             except:
@@ -1356,4 +1356,5 @@ async def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
+
     asyncio.run(main())
