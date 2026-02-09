@@ -20,7 +20,7 @@ from google.genai import types
 import collections
 
 # ==========================================
-# 0. 設定 & 2026年仕様 (Gemma 3 Optimized)
+# 0. 設定 & 2026年仕様 (Gemma 3 Only)
 # ==========================================
 # 環境変数から取得
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -28,9 +28,8 @@ GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
-# モデル設定 (Gemma 3指定)
-# ※ JSON構造化出力には高い能力が必要なため、重要タスクには27Bを使用
-MODEL_ULTRALONG = "gemma-3-27b-it"      # プロット・構成・JSON出力用
+# モデル設定 (Gemma 3指定 - Native JSON Mode非対応のためプロンプトエンジニアリングで対応)
+MODEL_ULTRALONG = "gemini-3-flash-preview"      # プロット・構成・JSON出力用
 MODEL_LITE = "gemma-3-12b-it"           # 執筆・本文生成用
 MODEL_MARKETING = "gemma-3-27b-it"      # 分析用
 
@@ -146,11 +145,8 @@ STYLE_SAMPLES = {
 }
 
 # ==========================================
-# Pydantic Schemas (Fix: Flattened & No Optional)
+# Pydantic Schemas (Flattened for Reliability)
 # ==========================================
-# APIエラー回避のため、すべてのOptional型と継承を排除し、完全なフラット構造にする
-# nullable=TrueやanyOfを含まない厳格なスキーマを生成する
-
 class PlotEpisode(BaseModel):
     ep_num: int
     title: str
@@ -170,15 +166,12 @@ class KnowledgeEntity(BaseModel):
     status: str = Field(default="active", description="active, revealed, resolved, dead")
     model_config = ConfigDict(extra='ignore')
 
-# 継承を廃止して独立クラス化
 class MCProfile(BaseModel):
-    # KnowledgeEntity互換フィールド
     entity_type: str = Field(default="character")
     name: str
     attributes: str = Field(default="{}", description="JSON string of attributes")
     status: str = Field(default="active")
     
-    # 固有フィールド
     tone: str = Field(default="標準", description="口調")
     personality: str = Field(default="標準", description="性格")
     ability: str = Field(default="なし", description="能力")
@@ -591,6 +584,10 @@ class SyncOrchestrator:
 # ==========================================
 # 4. ULTRA Engine (Autopilot)
 # ==========================================
+class ResponseWrapper:
+    def __init__(self, text):
+        self.text = text
+
 class UltraEngine:
     def __init__(self, api_key):
         self.client = genai.Client(api_key=api_key) if api_key else None
@@ -637,6 +634,23 @@ class UltraEngine:
         )
 
     async def _generate_with_retry(self, model, contents, config, retries=10):
+        # API Error: 400 INVALID_ARGUMENT (JSON Mode Not Enabled) 対策
+        # Gemma 3はNative JSON Mode非対応のため、configからschemaを除去し、プロンプトに注入する
+        target_schema = None
+        if config and hasattr(config, 'response_schema') and config.response_schema:
+            target_schema = config.response_schema
+            import json
+            schema_json = json.dumps(target_schema.model_json_schema(), ensure_ascii=False)
+            
+            # プロンプトへの注入
+            contents += f"\n\n```json\n{schema_json}\n```\n\nOutput ONLY valid JSON matching the schema above. Do not output Markdown code blocks or explanations."
+            
+            # スキーマを削除した新しい設定を作成（エラー回避）
+            config = types.GenerateContentConfig(
+                safety_settings=self.safety_settings,
+                temperature=0.7
+            )
+
         try:
             await self.rate_limiter.acquire()
             response = await self.client.aio.models.generate_content(
@@ -644,6 +658,15 @@ class UltraEngine:
                 contents=contents, 
                 config=config
             )
+            
+            # JSONモードエミュレーション時の後処理
+            if target_schema:
+                clean_text = response.text.strip()
+                clean_text = re.sub(r'^```json\s*', '', clean_text)
+                clean_text = re.sub(r'^```\s*', '', clean_text)
+                clean_text = re.sub(r'\s*```$', '', clean_text)
+                return ResponseWrapper(clean_text)
+
             return response
         except Exception as e:
             error_str = str(e)
