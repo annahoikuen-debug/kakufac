@@ -10,9 +10,7 @@ import sqlite3
 import smtplib
 import math
 import asyncio
-from contextlib import contextmanager
-from typing import List, Optional, Dict, Any
-from enum import Enum
+from typing import List, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
@@ -22,7 +20,7 @@ from google.genai import types
 import collections
 
 # ==========================================
-# 0. 設定 & 2026年仕様 (Headless / Embeddingなし)
+# 0. 設定 & 2026年仕様 (Gemma 3 Optimized)
 # ==========================================
 # 環境変数から取得
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -30,16 +28,13 @@ GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
-# モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-MODEL_ULTRALONG = "gemini-3-flash-preview"        # Gemini 3.0 Flash (プロット用・JSON対応)
-MODEL_LITE = "gemma-3-12b-it"        # Gemma 3 12B (通常執筆・JSON非対応)
-MODEL_PRO = "gemma-3-27b-it"             # Gemma 3 27B (重要回執筆・JSON非対応)
-MODEL_MARKETING = "gemini-2.5-flash-lite" # マーケティング分析用 (JSON対応)
+# モデル設定 (Gemma 3指定)
+# ※ JSON構造化出力には高い能力が必要なため、重要タスクには27Bを使用
+MODEL_ULTRALONG = "gemma-3-27b-it"      # プロット・構成・JSON出力用
+MODEL_LITE = "gemma-3-12b-it"           # 執筆・本文生成用
+MODEL_MARKETING = "gemma-3-27b-it"      # 分析用
 
-DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
-
-# Global Config: Rate Limits
-MIN_REQUEST_INTERVAL = 8.0
+DB_FILE = "factory_run.db"
 
 # ==========================================
 # 文体定義 & サンプルデータ
@@ -151,9 +146,10 @@ STYLE_SAMPLES = {
 }
 
 # ==========================================
-# Pydantic Schemas (構造化出力用)
+# Pydantic Schemas (Fix: Flattened & No Optional)
 # ==========================================
-# 廃止: PlotScene スキーマは廃止
+# APIエラー回避のため、すべてのOptional型と継承を排除し、完全なフラット構造にする
+# nullable=TrueやanyOfを含まない厳格なスキーマを生成する
 
 class PlotEpisode(BaseModel):
     ep_num: int
@@ -163,27 +159,33 @@ class PlotEpisode(BaseModel):
     climax: str
     resolution: str
     tension: int
-    target_tension: Optional[int] = Field(default=None, description="物語全体の波を作る目標テンション")
-    # scenes: List[str] # 廃止: 平坦化により削除、起承転結フィールドに集約
-    antagonist_interference: Optional[str] = Field(default=None, description="悪役による具体的な妨害工作（物語のテーマと整合性があるもの）")
+    target_tension: int = Field(default=50, description="物語全体の波を作る目標テンション")
+    antagonist_interference: str = Field(default="", description="悪役による具体的な妨害工作")
+    model_config = ConfigDict(extra='ignore')
 
-# 統合: ナレッジグラフ用のエンティティ
 class KnowledgeEntity(BaseModel):
     entity_type: str = Field(..., description="character, item, location, history, mystery, setting, foreshadowing")
     name: str
     attributes: str = Field(..., description="JSON string of attributes")
     status: str = Field(default="active", description="active, revealed, resolved, dead")
+    model_config = ConfigDict(extra='ignore')
 
-# 改善: MCProfileをKnowledgeEntityのサブクラスとして統合
-class MCProfile(KnowledgeEntity):
-    # KnowledgeEntityのフィールドを継承
-    # JSON生成時の互換性のため、具体的なフィールドも保持しつつ、内部的にはKnowledgeEntityとして扱う
+# 継承を廃止して独立クラス化
+class MCProfile(BaseModel):
+    # KnowledgeEntity互換フィールド
+    entity_type: str = Field(default="character")
+    name: str
+    attributes: str = Field(default="{}", description="JSON string of attributes")
+    status: str = Field(default="active")
+    
+    # 固有フィールド
     tone: str = Field(default="標準", description="口調")
     personality: str = Field(default="標準", description="性格")
     ability: str = Field(default="なし", description="能力")
     monologue_style: str = Field(default="標準", description="独白スタイル")
-    pronouns: str = Field(default="{}", description="JSON string mapping keys (e.g., '一人称', '二人称') to values")
-    keyword_dictionary: str = Field(default="{}", description="JSON string mapping unique terms to their reading or definition")
+    pronouns: str = Field(default="{}", description="JSON string mapping keys")
+    keyword_dictionary: str = Field(default="{}", description="JSON string mapping unique terms")
+    model_config = ConfigDict(extra='ignore')
 
     def to_entity(self) -> KnowledgeEntity:
         attrs = {
@@ -208,43 +210,44 @@ class NovelStructure(BaseModel):
     synopsis: str
     mc_profile: MCProfile
     plots: List[PlotEpisode]
+    model_config = ConfigDict(extra='ignore')
 
 class Phase2Structure(BaseModel):
     plots: List[PlotEpisode]
+    model_config = ConfigDict(extra='ignore')
 
-# 改善3: 伏線管理用のオブジェクト (trigger_event追加)
 class ForeshadowingItem(BaseModel):
     content: str = Field(..., description="伏線の内容")
     priority: int = Field(..., description="回収の優先度(1:低 - 5:高)")
     deadline_ep: int = Field(..., description="回収すべき目標話数")
-    trigger_event: Optional[str] = Field(default=None, description="この伏線が回収されるきっかけとなる具体的なイベント")
+    trigger_event: str = Field(default="", description="回収のきっかけ")
+    model_config = ConfigDict(extra='ignore')
 
 class WorldState(BaseModel):
-    entities: List[KnowledgeEntity] = Field(default_factory=list, description="現在の世界状態を構成する全エンティティ")
-    pending_foreshadowing: List[ForeshadowingItem] = Field(default_factory=list, description="未回収の伏線リスト")
+    entities: List[KnowledgeEntity] = Field(default_factory=list)
+    pending_foreshadowing: List[ForeshadowingItem] = Field(default_factory=list)
+    model_config = ConfigDict(extra='ignore')
 
-# 統合1: 統合された更新リザルト (整合性チェック含む) & 統合5: 品質評価フィールドの追加
 class ChapterSyncResult(BaseModel):
-    new_state: WorldState = Field(..., description="更新されたWorldState")
-    summary: str = Field(..., description="エピソードの300文字要約")
-    marketing_tags: List[str] = Field(default_factory=list, description="マーケティング分析用のタグ")
+    new_state: WorldState
+    summary: str = Field(..., description="エピソード要約")
+    marketing_tags: List[str] = Field(default_factory=list)
     is_consistent: bool = Field(..., description="設定矛盾がないか")
-    fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
-    minor_errors: List[str] = Field(default_factory=list, description="軽微な矛盾")
-    # 改善: 同期 & 品質評価の統合
-    retention_score: int = Field(..., description="読者維持率予測スコア(0-100)")
-    improvement_point: str = Field(..., description="品質改善点・アドバイス")
+    fatal_errors: List[str] = Field(default_factory=list)
+    minor_errors: List[str] = Field(default_factory=list)
+    retention_score: int = Field(..., description="読者維持率予測スコア")
+    improvement_point: str = Field(..., description="品質改善点")
+    model_config = ConfigDict(extra='ignore')
 
-# EvaluationItemは廃止（ChapterSyncResultに統合）
-
-# 改善: 引きのマルチショット評価用
 class CliffhangerOption(BaseModel):
     content: str
-    hunger_score: int = Field(..., description="読者の飢餓感スコア(0-100)")
+    hunger_score: int
+    model_config = ConfigDict(extra='ignore')
 
 class CliffhangerSelection(BaseModel):
     best_option_index: int
     reason: str
+    model_config = ConfigDict(extra='ignore')
 
 # ==========================================
 # プロンプト集約 (PROMPT_TEMPLATES)
@@ -282,7 +285,6 @@ LLMは以下の書式ルールをネイティブに出力すること。後処�
 
 --------------------------------------------------
 """,
-    # 統一2 & 改善2: フォーマット強制と五感描写（Show, Don't Tell）の統合
     "writing_rules": """
 【執筆プロトコル: 一括生成モード】
 以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
@@ -331,8 +333,6 @@ class TextFormatter:
         if not text: return ""
         text = text.strip()
 
-        # 1. N-gram Analysis & Repetition Check (文調の平滑化)
-        # 簡易的な重複行の削除（AI特有のループ回避）
         lines = text.split('\n')
         new_lines = []
         seen_lines = collections.deque(maxlen=3)
@@ -342,25 +342,14 @@ class TextFormatter:
                 new_lines.append(line)
                 continue
             if line_s in seen_lines:
-                continue # 直近3行と全く同じ行はスキップ
+                continue 
             seen_lines.append(line_s)
             new_lines.append(line)
         text = "\n".join(new_lines)
 
-        # 2. 接続詞の最適化 (Conjunction Optimization)
-        # 文頭の「そして、」「だが、」が連続する場合の抑制（ヒューリスティック）
-        # 文末の「〜だ。〜だ。」のリズム調整は正規表現では限界があるが、
-        # 読点の後の「そして」などを削除してリズムを整える
         text = re.sub(r'(。)\s*(そして|だが|だから|しかし)、', r'\1　', text)
-
-        # 3. 読点密度の調整 (Punctuation Density)
-        # 疑問符・感嘆符の後の空白確保（全角スペース）
         text = text.replace("!", "！").replace("?", "？")
         text = re.sub(r'([！？])([^　\n」])', r'\1　\2', text)
-        
-        # 文末の重複回避（簡易的）
-        # 同じ語尾が3連続以上続く場合、間の語尾を変える等の処理は高度なNLPが必要だが
-        # ここでは最低限の正規化を行う
         
         return text
 
@@ -386,7 +375,6 @@ class DatabaseManager:
                     status TEXT DEFAULT 'active', created_at TEXT, marketing_data TEXT, sub_plots TEXT
                 );
             ''')
-        # 統合: charactersとbibleを統合したknowledge_baseテーブル
         await self.execute('''
                 CREATE TABLE IF NOT EXISTS knowledge_base (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER,
@@ -464,7 +452,6 @@ class DynamicBibleManager:
         self.book_id = book_id
     
     async def get_current_state(self) -> WorldState:
-        # 統合: knowledge_baseからエンティティを取得 (主人公もここで取得される)
         rows = await db.fetch_all("SELECT * FROM knowledge_base WHERE book_id=? AND status='active'", (self.book_id,))
         entities = []
         pending_foreshadowing = []
@@ -477,7 +464,7 @@ class DynamicBibleManager:
                         content=row['name'],
                         priority=attr.get('priority', 3),
                         deadline_ep=attr.get('deadline_ep', 50),
-                        trigger_event=attr.get('trigger_event', None)
+                        trigger_event=attr.get('trigger_event', "")
                     ))
                 except: pass
             else:
@@ -494,21 +481,18 @@ class DynamicBibleManager:
         state = await self.get_current_state()
         context_str = "【WORLD STATE (Knowledge Base)】\n"
         
-        # キャラクター (主人公含む全て)
         chars = [e for e in state.entities if e.entity_type == 'character']
         if chars:
             context_str += "[CHARACTERS]\n"
             for c in chars:
                 context_str += f"- {c.name}: {c.attributes}\n"
         
-        # 設定
         settings = [e for e in state.entities if e.entity_type in ('setting', 'setting_immutable', 'setting_mutable')]
         if settings:
              context_str += "\n[SETTINGS]\n"
              for s in settings:
                  context_str += f"- {s.name}: {s.attributes}\n"
                  
-        # 伏線
         if state.pending_foreshadowing:
             context_str += "\n[PENDING FORESHADOWING (Priority List)]\n"
             sorted_items = sorted(state.pending_foreshadowing, key=lambda x: x.priority, reverse=True)
@@ -518,12 +502,11 @@ class DynamicBibleManager:
                 
         return context_str
     
-    async def select_active_foreshadowing(self, current_ep: int) -> Optional[ForeshadowingItem]:
+    async def select_active_foreshadowing(self, current_ep: int) -> Any:
         state = await self.get_current_state()
         if not state.pending_foreshadowing:
             return None
         
-        # 優先度が高く、期限が近いものをソート
         def score(item):
             urgency = max(1, item.deadline_ep - current_ep)
             return (item.priority / urgency)
@@ -549,7 +532,6 @@ class TokenBucketRateLimiter:
         async with self.lock:
             now = time.time()
             elapsed = now - self.last_update
-            # 補充
             self.tokens = min(self.rate_limit, self.tokens + elapsed * (self.rate_limit / self.time_period))
             self.last_update = now
             
@@ -568,22 +550,19 @@ class TokenBucketRateLimiter:
         print(f"⚠️ Rate Limit Hit. Pausing for {wait_time}s...")
         await asyncio.sleep(wait_time)
         async with self.lock:
-            self.tokens = self.rate_limit # リセット後にトークン回復
+            self.tokens = self.rate_limit
             self.last_update = time.time()
         self.retry_after_event.set()
 
 # ==========================================
-# SyncOrchestrator (Atomic DB Update)
+# SyncOrchestrator
 # ==========================================
 class SyncOrchestrator:
     def __init__(self, db_manager):
         self.db = db_manager
 
     async def commit_changes(self, book_id: int, sync_result: ChapterSyncResult):
-        """アトミックにDBを更新するトランザクション処理"""
-        # knowledge_baseへの書き込み処理
         for entity in sync_result.new_state.entities:
-            # 既存チェック
             existing = await self.db.fetch_one("SELECT id FROM knowledge_base WHERE book_id=? AND name=? AND entity_type=?", 
                                              (book_id, entity.name, entity.entity_type))
             if existing:
@@ -593,17 +572,14 @@ class SyncOrchestrator:
                 await self.db.execute("INSERT INTO knowledge_base (book_id, entity_type, name, attributes, status) VALUES (?,?,?,?,?)",
                                  (book_id, entity.entity_type, entity.name, entity.attributes, entity.status))
         
-        # 伏線の更新 (簡易ロジック: 現在DBにあるものと比較して更新)
         current_rows = await self.db.fetch_all("SELECT id, name FROM knowledge_base WHERE book_id=? AND entity_type='foreshadowing' AND status='active'", (book_id,))
         current_names = {r['name']: r['id'] for r in current_rows}
         new_names = {item.content for item in sync_result.new_state.pending_foreshadowing}
         
-        # 解決されたもの
         for name, pid in current_names.items():
             if name not in new_names:
                 await self.db.execute("UPDATE knowledge_base SET status='resolved' WHERE id=?", (pid,))
         
-        # 新規・更新
         for item in sync_result.new_state.pending_foreshadowing:
             attr_json = json.dumps({"priority": item.priority, "deadline_ep": item.deadline_ep, "trigger_event": item.trigger_event}, ensure_ascii=False)
             if item.content in current_names:
@@ -618,7 +594,7 @@ class SyncOrchestrator:
 class UltraEngine:
     def __init__(self, api_key):
         self.client = genai.Client(api_key=api_key) if api_key else None
-        self.rate_limiter = TokenBucketRateLimiter(rate_limit=10, time_period=60) # Gemma/Geminiの制限に合わせて調整
+        self.rate_limiter = TokenBucketRateLimiter(rate_limit=5, time_period=60)
         self.safety_settings = [
             types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
@@ -628,7 +604,6 @@ class UltraEngine:
         self.sync_orchestrator = SyncOrchestrator(db)
 
     def _generate_system_rules(self, mc_profile_dict, style="style_web_standard"):
-        # MCProfile辞書から情報を抽出 (整合性チェックの対象となるエンティティ)
         p_data = mc_profile_dict.get('pronouns', {})
         k_data = mc_profile_dict.get('keyword_dictionary', {})
         if isinstance(p_data, str):
@@ -673,9 +648,7 @@ class UltraEngine:
         except Exception as e:
             error_str = str(e)
             if "429" in error_str or "ResourceExhausted" in error_str:
-                # Extract retry-after if possible, else default
                 retry_after = 10
-                # ヘッダー解析ロジックはここには実装できないため、簡易的に待機
                 await self.rate_limiter.handle_429(retry_after)
                 return await self._generate_with_retry(model, contents, config, retries-1)
             elif retries > 0:
@@ -689,7 +662,6 @@ class UltraEngine:
     # ---------------------------------------------------------
 
     async def generate_universe_blueprint_unified(self, genre, style, mc_personality, mc_tone, keywords, start_ep=1, end_ep=50, context_data=None):
-        """全50話を一貫性を持って生成する再帰的パイプライン"""
         print(f"Step 1: Hyper-Resolution Plot Generation (Ep {start_ep}-{end_ep})...")
         
         style_name = STYLE_DEFINITIONS.get(style, {"name": style}).get("name")
@@ -705,20 +677,16 @@ class UltraEngine:
 
 【Task: Phase 2 (Ep 26-50)】
 前半の続きとして、**第26話〜第50話（最終話）**を作成せよ。
-物語の伏線を回収し、感動的なフィナーレへ導くこと。
 """
         else:
              context_prompt = f"""
 【Task: Phase 1 (Ep 1-25)】
 作品設定と、前半パートである**第1話〜第25話**の詳細プロットを作成せよ。
-前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
 """
 
-        # 改善8: 悪役エージェントの能動化（プロット段階への介入）
         villain_instruction = """
 【悪役（アンタゴニスト）の介入指令】
 各エピソードの `conflict` フィールドには、単なる物理的な障害だけでなく、悪役（または敵対的な運命）による**「主人公の思想・倫理への攻撃」**や**「ジレンマ」**を具体的に埋め込め。
-「こいつは許せないが、言っていることは一理ある」と感じさせるような思想的な対立構造を、物語の根幹としてプロットに組み込むこと。
 """
 
         prompt = f"""
@@ -734,7 +702,6 @@ class UltraEngine:
 
 {villain_instruction}
 
-物語全体の盛り上がりを保証するため、各話に0-100の`target_tension`を割り当てよ（正弦波または徐々に上昇する波）。
 注: mc_profile内の pronouns と keyword_dictionary は有効なJSON文字列として出力すること。
 """
         try:
@@ -751,7 +718,7 @@ class UltraEngine:
             data = schema.model_validate_json(res.text)
             
             if is_phase1:
-                # 改善: MCProfileをKnowledgeEntityとして扱うためのデータクレンジング
+                # データクレンジング
                 if isinstance(data.mc_profile.pronouns, str):
                     try: data.mc_profile.pronouns = json.loads(data.mc_profile.pronouns)
                     except: data.mc_profile.pronouns = {}
@@ -774,9 +741,7 @@ class UltraEngine:
             print(f"Plot Generation Error: {e}")
             return None
 
-    # 統合5: 同期 & 品質評価の統合
     async def sync_with_chapter(self, bible_manager, chapter_text, previous_summary):
-        """単一のLLMコールで世界状態更新、要約、マーケティングタグ抽出、整合性チェック、品質評価を行う"""
         current = await bible_manager.get_current_state()
         pending_json = json.dumps([p.model_dump() for p in current.pending_foreshadowing], ensure_ascii=False)
         entities_str = "\n".join([f"{e.entity_type}: {e.name} ({e.attributes})" for e in current.entities])
@@ -784,7 +749,6 @@ class UltraEngine:
         prompt = f"""
 あなたは物語のデータベース管理者兼、辛口の編集者です。
 以下のエピソード本文を分析し、JSON形式で結果を出力してください。
-整合性のチェックと同時に、エンターテインメントとしての品質を厳しく評価してください。
 
 【Input Data】
 Known Entities: {entities_str}
@@ -796,8 +760,8 @@ Previous Summary: {previous_summary}
 
 【Tasks】
 1. **is_consistent**: エピソードの内容が「Known Entities」や前回のあらすじと矛盾していないか判定せよ。
-2. **fatal_errors**: 矛盾がある場合、その致命的な理由をリストアップせよ（例：死んだキャラが生きてる、性格崩壊）。
-3. **new_state**: 「新たに確定した設定」「変化したステータス」「解明された謎」「新たに張られた伏線」を反映した新しいWorldStateを作成せよ。
+2. **fatal_errors**: 矛盾がある場合、その致命的な理由をリストアップせよ。
+3. **new_state**: 新しいWorldStateを作成せよ。
 4. **summary**: このエピソードの要約（300文字以内）を作成せよ。
 5. **marketing_tags**: このエピソードの「売り」となる要素をタグとして抽出せよ。
 6. **retention_score**: このエピソードの「読者維持率」を0-100で予測採点せよ。
@@ -829,16 +793,10 @@ Previous Summary: {previous_summary}
                 improvement_point="System Error"
             )
 
-    # 改善8により generate_villain_move は廃止（プロット生成フェーズに統合）
-    # async def generate_villain_move(self, ...):
-    #     pass
-
-    # 改善: マルチショット引き生成
     async def generate_cliffhanger_multishot(self, context, current_text_body, mission_directive):
         prompt_gen = f"""
 【Task】
 ここまで執筆されたエピソードの本文に続く、衝撃的な「結末（引き）」を3パターン生成せよ。
-読者が「続きを読まずにいられない」ような、クリフハンガーを意識すること。
 
 【Context】
 {context}
@@ -864,7 +822,7 @@ Previous Summary: {previous_summary}
             )
             options = json.loads(res_gen.text)
             
-            # 2. 評価・選択 (Marketing Model)
+            # 2. 評価・選択
             options_str = "\n".join([f"Option {i}: {opt['content']}" for i, opt in enumerate(options)])
             prompt_eval = f"""
 あなたはWeb小説の編集者です。以下の3つの「引き」の案のうち、最も読者の飢餓感を煽り、次話への遷移率（CTR）が高いと思われるものを選択せよ。
@@ -892,14 +850,7 @@ Previous Summary: {previous_summary}
             print(f"Cliffhanger Multishot Error: {e}")
             return "（生成エラーにより中断）"
 
-    # 統合5により analyze_chapter_quality は廃止（sync_with_chapterに統合）
-    # async def analyze_chapter_quality(self, ...):
-    #    pass
-
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, semaphore=None):
-        """
-        【執筆エンジン大規模改修】Reflection Loop & Marketing Integration
-        """
         all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
         target_plots = [p for p in all_plots if start_ep <= p.get('ep_num', -1) <= end_ep]
         if not target_plots: return None
@@ -907,7 +858,6 @@ Previous Summary: {previous_summary}
         full_chapters = []
         bible_manager = DynamicBibleManager(book_data['book_id'])
         
-        # 前話の文脈取得
         prev_ep_row = await db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
         prev_context_tail = prev_ep_row['content'][-150:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
         prev_summary = prev_ep_row['summary'] if prev_ep_row else "なし"
@@ -925,19 +875,13 @@ Previous Summary: {previous_summary}
             ep_num = plot['ep_num']
             print(f"Hyper-Narrative Engine Writing Ep {ep_num} (Reflective Mode)...")
             
-            # リトライループ（Reflection Loop）
             max_retries = 3
             current_critique = ""
             
             for attempt in range(max_retries):
                 async with semaphore:
-                    # 1. 状況準備
                     bible_context = await bible_manager.get_prompt_context()
 
-                    # 改善8: 悪役ムーブ生成はプロットフェーズに統合されたため、ここでは削除
-                    # PlotのConflictフィールドに既に悪役の介入が含まれている前提
-                    
-                    # 改善3: 伏線トリガー
                     selected_foreshadowing_item = await bible_manager.select_active_foreshadowing(ep_num)
                     mission_directive = ""
                     if selected_foreshadowing_item:
@@ -948,14 +892,12 @@ Previous Summary: {previous_summary}
 解決期限は第{selected_foreshadowing_item.deadline_ep}話である。今回は解決せずとも、事態を進展または悪化させる描写を入れること。
 """
 
-                    # プロット結合
                     episode_plot_text = f"""
 【Episode Title】{plot['title']}
 【Setup (導入)】 {plot.get('setup', '')}
 【Conflict (展開・悪役の介入)】 {plot.get('conflict', '')}
 【Climax (見せ場)】 {plot.get('climax', '')}
 """
-                    # 執筆プロンプト (Resolution/Cliffhangerは除く)
                     write_prompt = f"""
 {system_rules}
 {vocab_filter}
@@ -963,7 +905,6 @@ Previous Summary: {previous_summary}
 
 【Role: Novelist ({target_model})】
 以下のプロットに基づき、**第{ep_num}話**の本文を執筆せよ。ただし、「結末」の手前、クライマックスの直後までを書け。
-結末部分は後続のプロセスで生成するため、ここでは完結させず、物語の最高潮で筆を止めても良い。
 
 【前話からの文脈（接木プロトコル）】
 直前の状況: {prev_summary}
@@ -981,7 +922,6 @@ Previous Summary: {previous_summary}
 【Reflection (修正指示)】
 {current_critique if current_critique else "なし"}
 """
-                    # Body生成
                     try:
                         res_body = await self._generate_with_retry(
                             model=target_model, 
@@ -991,29 +931,24 @@ Previous Summary: {previous_summary}
                         body_text = res_body.text.strip()
                     except Exception as e:
                         print(f"Writing Body Error Ep{ep_num}: {e}")
-                        break # Fatal error
+                        break 
 
-                    # 改善: マルチショット引き生成
                     ending_text = await self.generate_cliffhanger_multishot(bible_context, body_text, mission_directive)
                     
                     full_content = body_text + "\n\n" + ending_text
                     full_content = TextFormatter.format(full_content)
 
-                    # 統合5: 同期 & 品質評価の一括実行
                     sync_result = await self.sync_with_chapter(bible_manager, full_content, prev_summary)
                     
-                    # 判定ロジック: 整合性がOK かつ 品質スコアが基準値以上
-                    is_quality_ok = sync_result.retention_score >= 60 # 60点以上で合格
+                    is_quality_ok = sync_result.retention_score >= 60 
                     is_consistent = sync_result.is_consistent
                     
                     if (is_consistent and is_quality_ok) or attempt == max_retries - 1:
-                        # 成功 または リトライ切れ -> 保存
                         if not is_consistent:
                             print(f"⚠️ Warning: Ep{ep_num} saved with inconsistencies after retries: {sync_result.fatal_errors}")
                         if not is_quality_ok:
                              print(f"⚠️ Warning: Ep{ep_num} saved with low quality score: {sync_result.retention_score}")
                         
-                        # アトミック更新
                         await self.sync_orchestrator.commit_changes(book_data['book_id'], sync_result)
                         
                         full_chapters.append({
@@ -1028,9 +963,8 @@ Previous Summary: {previous_summary}
                         
                         prev_context_tail = full_content[-150:]
                         prev_summary = sync_result.summary
-                        break # Loop脱出
+                        break
                     else:
-                        # 矛盾あり or 品質低 -> リトライ
                         issues = []
                         if not is_consistent: issues.extend(sync_result.fatal_errors)
                         if not is_quality_ok: issues.append(f"品質スコア低({sync_result.retention_score}): {sync_result.improvement_point}")
@@ -1059,11 +993,8 @@ Previous Summary: {previous_summary}
             (data_dict['title'], genre, data_dict['synopsis'], data_dict['concept'], 50, dna, 'active', ability_val, datetime.datetime.now().isoformat())
         )
         
-        # 統合: Knowledge Baseへの初期登録 (MCもKnowledgeEntityとして登録)
-        # MCProfileをKnowledgeEntityに変換して保存
         mc_entity = data.mc_profile.to_entity() if hasattr(data.mc_profile, 'to_entity') else None
         
-        # モデルバリデーションを通さずに辞書から変換する場合のフォールバック
         if not mc_entity:
              mc_attrs = {
                 "tone": data_dict['mc_profile']['tone'],
@@ -1088,7 +1019,6 @@ Previous Summary: {previous_summary}
         for p in data_dict['plots']:
             full_title = f"第{p['ep_num']}話 {p['title']}"
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
-            # scenesは廃止されたため空配列
             scenes_json = "[]" 
             await db.execute(
                 """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, status, scenes)
@@ -1122,15 +1052,12 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     book_info = await db.fetch_one("SELECT * FROM books WHERE id=?", (bid,))
     plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (bid,))
     
-    # 統合: Knowledge Baseから主人公取得
-    # KnowledgeEntityとして扱い、MCProfile形式に復元
     mc_rows = await db.fetch_all("SELECT * FROM knowledge_base WHERE book_id=? AND entity_type='character'", (bid,))
     mc_profile_dict = {"name":"主人公", "tone":"標準"}
     
-    # 主人公を探す (role='protagonist'があればベストだが、名前や最初のエントリで判断)
     protagonist = next((r for r in mc_rows if "protagonist" in r['attributes']), None)
     if not protagonist and mc_rows:
-        protagonist = mc_rows[0] # フォールバック
+        protagonist = mc_rows[0] 
         
     if protagonist:
         try:
@@ -1208,7 +1135,6 @@ async def create_zip_package(book_id, title):
     buffer = io.BytesIO()
 
     current_book = await db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
-    # 統合: knowledge_baseから取得
     db_chars = await db.fetch_all("SELECT * FROM knowledge_base WHERE book_id=? AND entity_type='character'", (book_id,))
     db_plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
     chapters = await db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
@@ -1219,7 +1145,6 @@ async def create_zip_package(book_id, title):
     keyword_dict = {}
     if db_chars:
         try:
-            # 最初のキャラの属性から辞書を取得試行
             dna = json.loads(db_chars[0]['attributes'])
             keyword_dict = dna.get('keyword_dictionary', {})
             if isinstance(keyword_dict, str):
@@ -1297,7 +1222,7 @@ async def main():
         print("Error: GEMINI_API_KEY is missing.")
         return
 
-    await db.start() # Database Worker Start
+    await db.start() 
     engine = UltraEngine(API_KEY)
 
     print("Starting Factory Pipeline (Async / One-Shot Mode)...")
@@ -1305,7 +1230,6 @@ async def main():
     try:
         seed = load_seed()
         
-        # 統一3: プロット生成 (再帰的・一括生成)
         print("Step 1: Generating Unified Universe Blueprint (Ep 1-50)...")
         data_full = await engine.generate_universe_blueprint_unified(
             seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
@@ -1320,11 +1244,8 @@ async def main():
         
         print("Step 2: Starting Parallel Execution (Writing Ep 1-50)...")
         
-        # 執筆 (1-50話) - 改善: Reflection Loop & Marketing分析が統合されている
         count_all, full_data_final, saved_style = await task_write_batch(engine, bid, start_ep=1, end_ep=50)
         
-        # 独立したマーケティングタスクは廃止され、執筆ループに統合済み
-
         book_info = await db.fetch_one("SELECT title FROM books WHERE id=?", (bid,))
         title = book_info['title']
         
