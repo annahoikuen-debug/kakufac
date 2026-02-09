@@ -921,7 +921,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
             except: pass
 
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
-    semaphore = asyncio.Semaphore(10)
+    semaphore = asyncio.Semaphore(2)
 
     tasks = []
     print(f"Starting Machine-Gun Parallel Writing (Ep {start_ep} - {end_ep})...")
