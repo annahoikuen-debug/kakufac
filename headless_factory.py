@@ -165,6 +165,7 @@ class PlotEpisode(BaseModel):
     climax: str
     resolution: str
     tension: int
+    target_tension: Optional[int] = Field(default=None, description="物語全体の波を作る目標テンション") # ロジック追加: target_tensionフィールド追加
     scenes: List[str]
 
 class MCProfile(BaseModel):
@@ -204,6 +205,7 @@ class EvaluationItem(BaseModel):
     total_score: int
     improvement_point: str
     retention_score: int = Field(..., description="読者維持率予測スコア(0-100)")
+    cliche_score: int = Field(default=0, description="展開のありきたり度(0-100)") # 分析ロジック: cliche_score追加
 
 class MarketingAssets(BaseModel):
     evaluations: List[EvaluationItem]
@@ -380,6 +382,15 @@ class DatabaseManager:
         await self.execute('''
                 CREATE TABLE IF NOT EXISTS characters (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, name TEXT, role TEXT, dna_json TEXT, monologue_style TEXT
+                );
+            ''')
+        # DBスキーマ拡張: relationshipsテーブルの作成
+        await self.execute('''
+                CREATE TABLE IF NOT EXISTS relationships (
+                    book_id INTEGER, char_source TEXT, char_target TEXT, 
+                    trust_score INTEGER, romance_score INTEGER, 
+                    conflict_state TEXT, last_interaction_summary TEXT, 
+                    PRIMARY KEY(book_id, char_source, char_target)
                 );
             ''')
 
@@ -585,6 +596,7 @@ class UltraEngine:
         
         style_name = STYLE_DEFINITIONS.get(style, {"name": style}).get("name")
 
+        # ロジック追加: 全50話のテンションカーブを指示
         prompt = f"""
 あなたはWeb小説の神級プロットアーキテクトです。
 ジャンル「{genre}」で、読者を熱狂させる**全50話完結の物語構造**を作成してください。
@@ -597,6 +609,7 @@ class UltraEngine:
 【Task: Phase 1 (Ep 1-25)】
 作品設定と、前半パートである**第1話〜第25話**の詳細プロットを作成せよ。
 前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
+物語全体の盛り上がりを保証するため、各話に0-100の`target_tension`を割り当てよ（正弦波または徐々に上昇する波）。
 注: mc_profile内の pronouns と keyword_dictionary は有効なJSON文字列として出力すること。
 """
         try:
@@ -639,6 +652,7 @@ class UltraEngine:
 【Task: Phase 2 (Ep 26-50)】
 前半の続きとして、**第26話〜第50話（最終話）**を作成せよ。
 物語の伏線を回収し、感動的なフィナーレへ導くこと。
+同様に各話に0-100の`target_tension`を割り当てよ。
 """
         try:
             res = await self._generate_with_retry(
@@ -773,6 +787,118 @@ Task:
             print(f"Bible Sync Error: {e}")
             return current
 
+    # ロジック追加: 人間関係の更新
+    async def update_relationship_matrix(self, chapter_text, book_id):
+        prompt = f"""
+あなたは心理分析官です。以下のエピソード本文を読み、登場人物間の関係性の変化を分析してください。
+主人公と主要キャラ（または主要キャラ同士）の「信頼度(Trust)」と「好感度(Romance)」を0-100で評価し、変化があった場合のみ出力してください。
+
+【本文】
+{chapter_text[:5000]}
+
+【出力形式】
+JSON Lines形式で出力。
+{{"char_source": "主人公", "char_target": "ヒロインA", "trust_score": 85, "romance_score": 60, "conflict_state": "なし", "last_interaction_summary": "主人公がヒロインを助けたことで信頼が向上"}}
+"""
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_LITE,
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json", safety_settings=self.safety_settings)
+            )
+            # JSON Lines解析
+            try:
+                updates = [json.loads(line) for line in res.text.splitlines() if line.strip()]
+            except:
+                # 単一JSONの場合のフォールバック
+                updates = [json.loads(res.text)] if res.text.strip() else []
+
+            for rel in updates:
+                if not isinstance(rel, dict): continue
+                await db.execute(
+                    """INSERT OR REPLACE INTO relationships (book_id, char_source, char_target, trust_score, romance_score, conflict_state, last_interaction_summary)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (book_id, rel.get('char_source'), rel.get('char_target'), rel.get('trust_score', 50), rel.get('romance_score', 0), rel.get('conflict_state', ''), rel.get('last_interaction_summary', ''))
+                )
+        except Exception as e:
+            print(f"Relationship Update Error: {e}")
+
+    # エージェント追加: 悪役の思考シミュレーション
+    async def generate_villain_move(self, world_state, current_plot):
+        prompt = f"""
+あなたは物語の「悪役（アンタゴニスト）」の思考ルーチンです。
+現在の状況(WorldState)と、主人公の次の行動予定(Plot)を見て、「主人公の目的を最も効果的に阻害する罠や障害」を考案してください。
+
+【World State】
+{world_state.mutable}
+
+【Next Plot】
+{current_plot.get('conflict', '')}
+
+【Instruction】
+主人公にとって「最悪のタイミング」で発動する妨害工作を1つ提案せよ。
+出力は、次のエピソードの「conflict（展開）」部分に上書きするためのテキストのみとせよ。
+"""
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_LITE,
+                contents=prompt,
+                config=types.GenerateContentConfig(safety_settings=self.safety_settings)
+            )
+            return res.text.strip()
+        except Exception as e:
+            print(f"Villain Move Error: {e}")
+            return None
+
+    # ポストプロセス: 感覚的描写への強化
+    async def enhance_sensory_details(self, text):
+        prompt = f"""
+【Task: Sensory Enhancement】
+以下のドラフト原稿に対し、説明的な「感情語（悲しい、嬉しい、怖いなど）」を検出し、
+それを削除して、『視覚』『聴覚』『嗅覚』『身体反応』の描写に置き換えて表現を強化せよ。
+（例：『怖かった』→『奥歯が鳴り、指先から血の気が引いた』）
+文脈やストーリーは変更せず、描写の解像度のみを上げよ。
+
+【Draft】
+{text}
+"""
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_LITE,
+                contents=prompt,
+                config=types.GenerateContentConfig(safety_settings=self.safety_settings)
+            )
+            return res.text.strip()
+        except Exception as e:
+            print(f"Sensory Enhancement Error: {e}")
+            return text
+
+    # イベント注入: ブラックスワン
+    async def inject_black_swan_event(self, book_id, next_ep_num):
+        plot = await db.fetch_one("SELECT * FROM plot WHERE book_id=? AND ep_num=?", (book_id, next_ep_num))
+        if not plot: return
+
+        prompt = f"""
+【緊急指令: Black Swan Event】
+物語が予定調和（クリシェ）になりつつあります。
+次のエピソード（第{next_ep_num}話）のプロット（setup）に、ランダムな「強制イベント（例：味方の裏切り、重要アイテムの破損、天災、未知の敵の乱入）」を注入し、
+無理やり展開を分岐させるようにsetupを書き換えてください。
+
+【Original Setup】
+{plot['setup']}
+"""
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_LITE,
+                contents=prompt,
+                config=types.GenerateContentConfig(safety_settings=self.safety_settings)
+            )
+            new_setup = res.text.strip()
+            await db.execute("UPDATE plot SET setup=? WHERE book_id=? AND ep_num=?", (new_setup, book_id, next_ep_num))
+            print(f"Black Swan Event Injected into Ep {next_ep_num}")
+        except Exception as e:
+            print(f"Black Swan Injection Error: {e}")
+
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
         """
         【執筆エンジン大規模改修】ワンショット一括生成ロジック
@@ -802,12 +928,27 @@ Task:
             ep_num = plot['ep_num']
             print(f"Hyper-Narrative Engine Writing Ep {ep_num} (One-Shot Mode)...")
             
-            # モデル最適化ロジック: 1話、50話、高テンション回はPROモデルを使用
+            # ロジック追加: テンションによるモデル選択と演出指示
             tension = plot.get('tension', 50)
-            current_model = target_model
-            if ep_num == 1 or ep_num == 50 or tension >= 80:
-                current_model = MODEL_PRO
+            target_tension = plot.get('target_tension', 50)
             
+            current_model = target_model
+            cinematic_instruction = ""
+            dynamic_tension_rule = ""
+
+            if ep_num == 1 or ep_num == 50 or tension >= 80 or (target_tension and target_tension >= 80):
+                current_model = MODEL_PRO
+                dynamic_tension_rule = "【緊急指示: High Tension】\n本エピソードは物語の山場である。「絶体絶命のピンチ」を必ず入れ、読者の心拍数を上げる描写をせよ。"
+                # 演出指示: Cinematic Mode
+                cinematic_instruction = "【Cinematic Mode】\nクライマックス（見せ場）のシーンを描写する際のみ、「時間の流れをスローモーションにするように、一瞬の動作を極端に詳細に描写せよ」「改行を多用し、視覚的な空白で『タメ』を作れ」。"
+            
+            # エージェント追加: 悪役の妨害
+            world_state = await bible_manager.get_current_state()
+            if tension >= 60:
+                villain_move = await self.generate_villain_move(world_state, plot)
+                if villain_move:
+                    plot['conflict'] += f"\n【Villain's Move (Sudden Obstacle)】\n{villain_move}"
+
             # プロット情報の結合
             episode_plot_text = f"""
 【Episode Title】{plot['title']}
@@ -817,19 +958,32 @@ Task:
 【Resolution (結末・引き)】 {plot.get('resolution', '')}
 """
             
+            # プロンプト注入: 人間関係の反映
+            relationships = await db.fetch_all("SELECT * FROM relationships WHERE book_id=?", (book_data['book_id'],))
+            rel_text = "【現在の人間関係】\n"
+            if relationships:
+                for r in relationships:
+                    rel_text += f"- {r['char_source']} -> {r['char_target']}: 信頼{r['trust_score']}, 好感{r['romance_score']} ({r['last_interaction_summary']})\n"
+                rel_text += "※信頼度が低い相手には警戒心を持って接すること。好感度が高い相手には無意識に甘い態度をとること。\n"
+            else:
+                rel_text += "まだ主要な関係性は確立されていない。\n"
+
             # 執筆プロンプト構築
             bible_context = await bible_manager.get_prompt_context()
-            world_state = await bible_manager.get_current_state()
             
             write_prompt = f"""
 {system_rules}
+{dynamic_tension_rule}
 {vocab_filter}
 {PROMPT_TEMPLATES["writing_rules"]}
 {PROMPT_TEMPLATES["cliffhanger_protocol"]}
+{cinematic_instruction}
 
 【Role: Novelist ({current_model})】
 以下のプロットに基づき、**第{ep_num}話**の本文を一括執筆せよ。
 特に【Pending Foreshadowing】にある未回収の伏線を優先的に解消するよう意識せよ。
+
+{rel_text}
 
 【Pending Foreshadowing (Priority)】
 {json.dumps(world_state.pending_foreshadowing, ensure_ascii=False)}
@@ -862,9 +1016,15 @@ Task:
 
             full_content = scene_text.strip()
             
+            # ポストプロセス: 感覚的描写への強化
+            full_content = await self.enhance_sensory_details(full_content)
+
             # 1. WorldStateの更新
             new_state = await self.sync_with_chapter(bible_manager, full_content)
             
+            # ロジック追加: 関係性の更新
+            await self.update_relationship_matrix(full_content, book_data['book_id'])
+
             # 2. 次の話のための文脈要約を生成
             summary_prompt = f"以下の第{ep_num}話の内容を300文字で要約せよ:\n{full_content[:5000]}"
             try:
@@ -927,7 +1087,8 @@ Task:
 
 Task 1: 各話スコアリング & 改善提案
 Task 2: 読者離脱リスクの予測 (retention_score: 0-100)
-Task 3: マーケティング素材生成 (キャッチコピー、タグ、近況ノート)
+Task 3: 展開のありきたり度判定 (cliche_score: 0-100)
+Task 4: マーケティング素材生成 (キャッチコピー、タグ、近況ノート)
 
 【作品タイトル】{book_info['title']}
 【物語全体ダイジェスト】
@@ -956,11 +1117,18 @@ Task 3: マーケティング素材生成 (キャッチコピー、タグ、近�
             for evaluation in evaluations_list:
                 is_low_quality = evaluation.get('total_score', 0) < 60
                 is_high_risk = evaluation.get('retention_score', 100) < 60
+                is_cliche = evaluation.get('cliche_score', 0) > 80 # 分析ロジック: クリシェ度判定
                 
                 if is_low_quality or is_high_risk: 
                        rewrite_target_eps.append(evaluation.get('ep_num'))
                        if is_high_risk:
                            evaluation['improvement_point'] += " 【緊急指示】読者離脱を防ぐため、MODEL_PROを使用して『波乱』や『衝撃的な展開』を強制的に注入せよ。"
+                
+                # イベント注入: ブラックスワン
+                if is_cliche:
+                    next_ep = evaluation.get('ep_num') + 1
+                    if next_ep <= 50:
+                        await self.inject_black_swan_event(book_id, next_ep)
             
             await db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(marketing_assets_dict, ensure_ascii=False), book_id))
             
@@ -1025,7 +1193,7 @@ Task 3: マーケティング素材生成 (キャッチコピー、タグ、近�
         monologue_val = data_dict['mc_profile'].get('monologue_style', '')
         await db.execute("INSERT INTO characters (book_id, name, role, dna_json, monologue_style) VALUES (?,?,?,?,?)", (bid, data_dict['mc_profile']['name'], '主人公', c_dna, monologue_val))
         
-        await db.execute("INSERT INTO bible (book_id, immutable, mutable, revealed, revealed_mysteries, pending_foreshadowing, last_updated) VALUES (?,?,?,?,?,?,?,?)",
+        await db.execute("INSERT INTO bible (book_id, immutable, mutable, revealed, revealed_mysteries, pending_foreshadowing, last_updated) VALUES (?,?,?,?,?,?,?)",
                     (bid, "{}", "{}", "[]", "[]", "[]", datetime.datetime.now().isoformat()))
 
         saved_plots = []
