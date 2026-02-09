@@ -1211,12 +1211,12 @@ async def main():
 
     print("Starting Factory Pipeline (Async / One-Shot Mode)...")
 
-    while True:
-        try:
-            seed = load_seed()
+    #while True:
+    try:
+        seed = load_seed()
             
             # Step 1: 1-25話プロット
-            print("Step 1a: Generating Plot Phase 1 (Ep 1-25)...")
+        print("Step 1a: Generating Plot Phase 1 (Ep 1-25)...")
             data1 = await engine.generate_universe_blueprint_phase1(
                 seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
             )
