@@ -27,7 +27,7 @@ from google.genai import types
 API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
-TARGET_EMAIL = os.environ.get("GMAIL_USER") 
+TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
 MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 3.0 Flash (プロット用・JSON対応)
@@ -1217,7 +1217,7 @@ async def create_zip_package(book_id, title, marketing_data):
             try:
                 dna = json.loads(char['dna_json'])
                 for k, v in dna.items():
-                if k not in ['name', 'role', 'monologue_style']:
+                    if k not in ['name', 'role', 'monologue_style']:
                         val_str = json.dumps(v, ensure_ascii=False) if isinstance(v, (dict, list)) else str(v)
                         setting_txt += f"  - {k}: {val_str}\n"
             except:
@@ -1356,5 +1356,4 @@ async def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
-
     asyncio.run(main())
