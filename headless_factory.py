@@ -28,8 +28,8 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
 MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 2.5 Flash (プロット・高品質用)
-MODEL_LITE = "gemma-3-12b-it"               # Gemma 3 12B (量産の馬: 初稿・通常回用)
-MODEL_PRO = "gemma-3-27b-it"                # Gemma 3 27B (エースの筆: 推敲・重要回用)
+MODEL_LITE = "gemma-3-12b-it"                # Gemma 3 12B (量産の馬: 初稿・通常回用)
+MODEL_PRO = "gemma-3-27b-it"                 # Gemma 3 27B (エースの筆: 推敲・重要回用)
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 REWRITE_THRESHOLD = 70  # リライト閾値
@@ -466,6 +466,7 @@ Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情�
                 prev_summary = prev_ep_row['summary']
 
         system_rules = self._generate_system_rules(book_data['mc_profile'], style=style_dna_str)
+        mc_name = book_data['mc_profile'].get('name', '主人公')
 
         for plot in target_plots:
             ep_num = plot['ep_num']
@@ -519,6 +520,26 @@ Blueprint (text only):
 あなたは高精度の執筆エンジンです。
 以下の「Blueprint」に厳密に従い、シーンの本文のみを執筆してください。
 描写密度を最大化し、余計な要約を含めないこと。
+
+【情報の「開示制限」とプロットの再構成】
+あなたは「読者の没入感」を最優先する編集者兼作家です。制約事項・設定資料にある情報を一度にすべて出さないこと。
+・「既に出した情報」を記録し、同じ説明を2回以上繰り返さないこと。
+・地の文での説明を50%削り、キャラの行動や五感で状況を表現（Show, don't tell）すること。
+実行手順1. 前話までに開示済みの設定を箇条書きで抽出せよ。
+2. 本エピソードで「最低限伝えなければならない新情報」を1つだけ選べ。
+3. それ以外は一切説明せず、シーンの描写に徹せよ。
+
+【キャラクターごとの「語彙フィルター」の設定】
+視点キャラクターは「{mc_name}」です。
+視点制限・このキャラが知らない設定情報は、地の文でも一切言及禁止です。
+・このキャラ特有の口癖、思考の癖、語彙リスト（{json.dumps(book_data['mc_profile'].get('keyword_dictionary', {}), ensure_ascii=False)}）のみを使用してください。
+トーン制御前の章の語り口を完全にリセットし、このキャラの性格に基づいた一人称（または三人称近接視点）で再構築してください。
+
+【シーン間の「論理的接続（ブリッジ）」の強化】
+接続命令シーン[A]とシーン[B]のつながりを自然にするための「ブリッジ」を作成してください。
+具体指示・シーン[A]の最後の感情（例：焦燥感）を、シーン[B]の冒頭の一行目で引き継ぐこと。
+・「なぜ今この場所にいるのか」の動機を、キャラのモノローグで一言補足すること。
+構造チェックプロットの[項目名]に従っているか確認し、逸脱している場合は、プロットの目的（例：ここで二人は仲良くなる）を優先して書き直してください。
 
 【Blueprint】
 {blueprint_text}
