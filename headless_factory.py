@@ -33,7 +33,7 @@ MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" # QAと重要回で使用
 MODEL_MICRO = "gemma-3-4b-it" # 文体校正用
-MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05"
+MODEL_MARKETING = "gemini-2.5-flash-lite"
 
 DB_FILE = "factory_run.db"
 
