@@ -33,7 +33,7 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 3.0 Flash (プロット用・JSON対応)
 MODEL_LITE = "gemma-3-12b-it"        # Gemma 3 12B (通常執筆・JSON非対応)
 MODEL_PRO = "gemma-3-27b-it"             # Gemma 3 27B (重要回執筆・JSON非対応)
-MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05" # マーケティング分析用 (JSON対応)
+MODEL_MARKETING = "gemini-2.5-flash-lite" # マーケティング分析用 (JSON対応)
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 
