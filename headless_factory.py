@@ -13,7 +13,7 @@ import asyncio
 from contextlib import contextmanager
 from typing import List, Optional, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
@@ -32,7 +32,7 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
 MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 2.0 Flash (プロット・高品質・スキーマ対応)
 MODEL_LITE = "gemma-3-12b-it"        # Gemma 3相当の軽量モデル（スキーマ対応のためGemini系推奨）
-MODEL_PRO = "gemma-3-27b-it"            # 高品質推論用
+MODEL_PRO = "gemma-3-27b-it"             # 高品質推論用
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 
@@ -43,11 +43,13 @@ MIN_REQUEST_INTERVAL = 0.5
 # Pydantic Schemas (構造化出力用)
 # ==========================================
 class PlotScene(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     setup: str = Field(..., description="導入")
     conflict: str = Field(..., description="展開")
     climax: str = Field(..., description="結末")
 
 class PlotEpisode(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     ep_num: int
     title: str
     setup: str
@@ -58,15 +60,17 @@ class PlotEpisode(BaseModel):
     scenes: List[str]
 
 class MCProfile(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     name: str
     tone: str
     personality: str
     ability: str
     monologue_style: str
-    pronouns: Dict[str, str]
-    keyword_dictionary: Dict[str, str]
+    pronouns: str = Field(..., description="JSON string mapping keys (e.g., '一人称', '二人称') to values")
+    keyword_dictionary: str = Field(..., description="JSON string mapping unique terms to their reading or definition")
 
 class NovelStructure(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     title: str
     concept: str
     synopsis: str
@@ -74,24 +78,29 @@ class NovelStructure(BaseModel):
     plots: List[PlotEpisode]
 
 class Phase2Structure(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     plots: List[PlotEpisode]
 
 class WorldState(BaseModel):
-    immutable: Dict[str, Any] = Field(default_factory=dict, description="不変設定（性別、物理法則など）")
-    mutable: Dict[str, Any] = Field(default_factory=dict, description="可変設定（場所、ステータス、生死）")
+    model_config = ConfigDict(extra='forbid')
+    immutable: str = Field(..., description="JSON string representing immutable settings")
+    mutable: str = Field(..., description="JSON string representing mutable settings")
     revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
 
 class SceneBlueprint(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     blueprint: str = Field(..., description="執筆用詳細設計図")
     required_info: str = Field(..., description="今回開示すべき最小限の情報")
 
 class ConsistencyResult(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     is_consistent: bool = Field(..., description="設定矛盾がないか")
     fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
     minor_errors: List[str] = Field(default_factory=list, description="軽微な矛盾")
     rewrite_needed: bool = Field(..., description="リライトが必要か")
 
 class AnalysisResult(BaseModel):
+    model_config = ConfigDict(extra='forbid')
     score_structure: int
     score_character: int
     score_hook: int
@@ -99,9 +108,16 @@ class AnalysisResult(BaseModel):
     total_score: int
     improvement_point: str
 
+class EvaluationItem(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    ep_num: int
+    total_score: int
+    improvement_point: str
+
 class MarketingAssets(BaseModel):
-    evaluations: List[Dict[str, Any]] # 簡易化
-    marketing_assets: Dict[str, Any]
+    model_config = ConfigDict(extra='forbid')
+    evaluations: List[EvaluationItem]
+    marketing_assets: str = Field(..., description="JSON string containing marketing assets like catchcopies and tags")
 
 # ==========================================
 # プロンプト集約 (PROMPT_TEMPLATES)
@@ -300,23 +316,24 @@ class DynamicBibleManager:
     def get_current_state(self) -> WorldState:
         row = db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
         if not row:
-            return WorldState()
+            return WorldState(immutable="{}", mutable="{}", revealed=[])
         try:
+            # DBには文字列で保存されているため、Pydanticのstrフィールドにはそのまま渡す（json.loadsしない）
             return WorldState(
-                immutable=json.loads(row['immutable']) if row['immutable'] else {},
-                mutable=json.loads(row['mutable']) if row['mutable'] else {},
+                immutable=row['immutable'] if row['immutable'] else "{}",
+                mutable=row['mutable'] if row['mutable'] else "{}",
                 revealed=json.loads(row['revealed']) if row['revealed'] else []
             )
         except:
-            return WorldState()
+            return WorldState(immutable="{}", mutable="{}", revealed=[])
 
     def update_state(self, new_state: WorldState):
         db.execute(
             "INSERT INTO bible (book_id, immutable, mutable, revealed, last_updated) VALUES (?,?,?,?,?)",
             (
                 self.book_id,
-                json.dumps(new_state.immutable, ensure_ascii=False),
-                json.dumps(new_state.mutable, ensure_ascii=False),
+                new_state.immutable, # すでにJSON文字列
+                new_state.mutable,   # すでにJSON文字列
                 json.dumps(new_state.revealed, ensure_ascii=False),
                 datetime.datetime.now().isoformat()
             )
@@ -326,8 +343,8 @@ class DynamicBibleManager:
         state = self.get_current_state()
         return f"""
 【WORLD STATE (Current)】
-[IMMUTABLE - Do Not Change]: {json.dumps(state.immutable, ensure_ascii=False)}
-[MUTABLE - Can Change]: {json.dumps(state.mutable, ensure_ascii=False)}
+[IMMUTABLE - Do Not Change]: {state.immutable}
+[MUTABLE - Can Change]: {state.mutable}
 [REVEALED - Known to Reader]: {json.dumps(state.revealed, ensure_ascii=False)}
 """
 
@@ -351,11 +368,6 @@ class AdaptiveRateLimiter:
         async with self.lock:
             if self.limit < 10: # Max limit cap
                 self.limit += 1
-                # Increase semaphore capacity strictly
-                # (Simple implementations often just recreate semaphore or release extra, 
-                # here we just rely on future acquires being faster if we could dynamically resize.
-                # Since asyncio semaphore doesn't support resize easily, we accept strict backoff
-                # but lazy expansion or just keep semantic limit high and use sleep).
                 pass
 
     async def report_failure(self):
@@ -364,9 +376,6 @@ class AdaptiveRateLimiter:
             self.limit = max(self.min_limit, self.limit // 2)
             print(f"📉 Circuit Breaker Triggered: Limit reduced {old_limit} -> {self.limit}")
             await asyncio.sleep(5) # Cooldown
-            
-            # Drain semaphore to match new limit is complex, 
-            # instead we simply sleep to simulate backpressure.
 
 # ==========================================
 # 4. ULTRA Engine (Autopilot & Mobile Opt)
@@ -383,8 +392,20 @@ class UltraEngine:
         ]
 
     def _generate_system_rules(self, mc_profile, style="標準"):
-        pronouns_json = json.dumps(mc_profile.get('pronouns', {}), ensure_ascii=False)
-        keywords_json = json.dumps(mc_profile.get('keyword_dictionary', {}), ensure_ascii=False)
+        # プロファイルが辞書型であることを想定して処理
+        p_data = mc_profile.get('pronouns', {})
+        k_data = mc_profile.get('keyword_dictionary', {})
+        
+        # 文字列(JSON)で渡された場合は辞書に戻す
+        if isinstance(p_data, str):
+            try: p_data = json.loads(p_data)
+            except: pass
+        if isinstance(k_data, str):
+            try: k_data = json.loads(k_data)
+            except: pass
+            
+        pronouns_json = json.dumps(p_data, ensure_ascii=False)
+        keywords_json = json.dumps(k_data, ensure_ascii=False)
         monologue = mc_profile.get('monologue_style', '標準')
         return PROMPT_TEMPLATES["system_rules"].format(pronouns=pronouns_json, keywords=keywords_json, monologue_style=monologue, style=style)
 
@@ -397,7 +418,6 @@ class UltraEngine:
         try:
             for attempt in range(retries):
                 try:
-                    # スキーマがある場合は構造化モード
                     response = await self.client.aio.models.generate_content(
                         model=model, 
                         contents=contents, 
@@ -440,6 +460,7 @@ class UltraEngine:
 
 【Task: Phase 1 (Ep 1-13)】
 作品設定と、第1話〜第13話の詳細プロットを作成せよ。
+注: mc_profile内の pronouns と keyword_dictionary は有効なJSON文字列として出力すること。
 """
         try:
             res = await self._generate_with_retry(
@@ -451,8 +472,22 @@ class UltraEngine:
                     safety_settings=self.safety_settings
                 )
             )
-            # Pydanticモデルとしてパースされた結果を辞書化
-            return json.loads(res.text)
+            data = json.loads(res.text)
+            
+            # 文字列として返されたJSONフィールドを辞書に変換して整合性を保つ
+            if 'mc_profile' in data:
+                if isinstance(data['mc_profile'].get('pronouns'), str):
+                    try:
+                        data['mc_profile']['pronouns'] = json.loads(data['mc_profile']['pronouns'])
+                    except:
+                        data['mc_profile']['pronouns'] = {}
+                if isinstance(data['mc_profile'].get('keyword_dictionary'), str):
+                    try:
+                        data['mc_profile']['keyword_dictionary'] = json.loads(data['mc_profile']['keyword_dictionary'])
+                    except:
+                        data['mc_profile']['keyword_dictionary'] = {}
+
+            return data
         except Exception as e:
             print(f"Plot Phase 1 Error: {e}")
             return None
@@ -495,8 +530,8 @@ class UltraEngine:
 以下のエピソード本文と「Bible（世界設定）」を比較し、矛盾を検出してください。
 
 【Bible】
-Immutable: {json.dumps(state.immutable, ensure_ascii=False)}
-Mutable: {json.dumps(state.mutable, ensure_ascii=False)}
+Immutable: {state.immutable}
+Mutable: {state.mutable}
 
 【Episode Text】
 {ep_text[:3000]}... (Excerpt)
@@ -530,9 +565,11 @@ Mutable: {json.dumps(state.mutable, ensure_ascii=False)}
 あなたはデータベース管理者です。
 以下のエピソード本文から「新たに確定した設定」「変化したステータス」「読者に開示された秘密」を抽出し、
 WorldStateを更新してください。
+注: immutable, mutable はJSON形式の文字列として出力すること。
 
 【Current State】
-{json.dumps(current.model_dump(), ensure_ascii=False)}
+Immutable: {current.immutable}
+Mutable: {current.mutable}
 
 【Episode Text】
 {chapter_text}
@@ -722,6 +759,7 @@ Blueprintに従い、シーンを執筆せよ。
         prompt = f"""
 あなたはWeb小説の敏腕編集者兼マーケターです。
 以下のタスクを一括実行し、JSONで出力せよ。
+注: marketing_assets はJSON形式の文字列として出力すること。
 
 Task 1: 各話スコアリング & 改善提案
 Task 2: マーケティング素材生成 (キャッチコピー、タグ、近況ノート)
@@ -742,23 +780,28 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             )
             data = MarketingAssets.model_validate_json(res.text)
             
-            # --- 構造改革: 閾値廃止と論理判定への移行 ---
-            # ここではスコアも見るが、後のプロセスで evaluate_consistency を呼ぶためのリストアップを行う
-            rewrite_target_eps = []
-            bible_manager = DynamicBibleManager(book_id)
+            # 文字列を辞書にパースしてダウンストリーム互換性を確保
+            marketing_assets_dict = {}
+            if data.marketing_assets:
+                try:
+                    marketing_assets_dict = json.loads(data.marketing_assets)
+                except: pass
             
-            for evaluation in data.evaluations:
-                # 低スコアまたは "improvement_point" に重大な指摘がある場合
+            # --- 構造改革: 閾値廃止と論理判定への移行 ---
+            rewrite_target_eps = []
+            
+            # Pydanticモデルから辞書形式への変換（EvaluationItem -> dict）
+            evaluations_list = [e.model_dump() for e in data.evaluations]
+            
+            for evaluation in evaluations_list:
                 ep_num = evaluation.get('ep_num')
-                # ここでConsistency Checkを非同期で走らせるのも手だが、今回はリライト候補として挙げ、
-                # リライトループ内で evaluate_consistency を呼ぶ設計とする。
-                if evaluation.get('total_score', 0) < 60: # 最低限の足切り
+                if evaluation.get('total_score', 0) < 60: 
                      rewrite_target_eps.append(ep_num)
             
-            # DB更新
-            db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(data.marketing_assets, ensure_ascii=False), book_id))
+            # DB更新 (辞書をダンプ)
+            db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(marketing_assets_dict, ensure_ascii=False), book_id))
             
-            return data.evaluations, rewrite_target_eps, data.marketing_assets
+            return evaluations_list, rewrite_target_eps, marketing_assets_dict
             
         except Exception as e:
             print(f"Analysis Error: {e}")
@@ -811,9 +854,7 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
     def save_blueprint_to_db(self, data, genre, style_dna_str):
         # Pydanticモデルから辞書へ
         if isinstance(data, dict): data_dict = data
-        else: data_dict = data.model_dump() # Should not happen based on return type of generate_universe_blueprint_phase1 logic which returns dict
-        
-        # Phase1が辞書で返ってくるように修正済みだが念のため
+        else: data_dict = data.model_dump()
         
         dna = json.dumps({
             "tone": data_dict['mc_profile']['tone'], 
@@ -874,6 +915,8 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             
         for ch in chapters_list:
             content = TextFormatter.format(ch['content'])
+            # Pydanticモデルの変更によりworld_state内のJSONは既に文字列だが、
+            # ここでは全体の辞書をダンプして保存する
             w_state = json.dumps(ch.get('world_state', {}), ensure_ascii=False) if ch.get('world_state') else ""
 
             db.execute(
@@ -1019,6 +1062,9 @@ def create_zip_package(book_id, title, marketing_data):
         try:
             dna = json.loads(mc_char['dna_json'])
             keyword_dict = dna.get('keyword_dictionary', {})
+            # もしJSON文字列として保存されていた場合の対策
+            if isinstance(keyword_dict, str):
+                keyword_dict = json.loads(keyword_dict)
         except: pass
 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1173,5 +1219,4 @@ async def main():
             await asyncio.sleep(10)
 
 if __name__ == "__main__":
-
     asyncio.run(main())
