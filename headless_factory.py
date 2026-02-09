@@ -767,7 +767,7 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
     async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="標準"):
         """【安定化】マーケティング・フィードバックループ"""
         rewritten_count = 0
-        semaphore = asyncio.Semaphore(2) 
+        semaphore = asyncio.Semaphore(1) 
         
         eval_map = {e['ep_num']: e for e in evaluations}
         tasks = []
