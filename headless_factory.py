@@ -30,9 +30,9 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-MODEL_ULTRALONG = "gemini-2.0-flash"       # Gemini 2.0 Flash (プロット・高品質・スキーマ対応)
-MODEL_LITE = "gemini-2.0-flash-lite"        # Gemma 3相当の軽量モデル（スキーマ対応のためGemini系推奨）
-MODEL_PRO = "gemini-2.0-pro-exp"            # 高品質推論用
+MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 2.0 Flash (プロット・高品質・スキーマ対応)
+MODEL_LITE = "gemma-3-12b-it"        # Gemma 3相当の軽量モデル（スキーマ対応のためGemini系推奨）
+MODEL_PRO = "gemma-3-27b-it"            # 高品質推論用
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 
