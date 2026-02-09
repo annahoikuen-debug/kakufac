@@ -28,11 +28,12 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
+# 503エラー対策: プレビュー版が不安定な場合は gemini-2.0-flash 等に変更推奨
 MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" # QAと重要回で使用
 MODEL_MICRO = "gemma-3-4b-it" # 文体校正用
-MODEL_MARKETING = "gemini-2.5-flash-lite"
+MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05"
 
 DB_FILE = "factory_run.db"
 
@@ -486,7 +487,7 @@ class DynamicBibleManager:
 """
 
 # ==========================================
-# 3. Adaptive Rate Limiter
+# 3. Adaptive Rate Limiter (Enhanced for 503)
 # ==========================================
 class AdaptiveRateLimiter:
     def __init__(self, initial_limit=5, min_limit=1):
@@ -500,8 +501,8 @@ class AdaptiveRateLimiter:
     
     async def run_with_retry(self, func, *args, **kwargs):
         retries = 0
-        max_retries = 5
-        base_delay = 2.0
+        max_retries = 8 # Increased for 503 handling
+        base_delay = 5.0 # Increased for 503 handling
         
         while retries <= max_retries:
             await self.acquire()
@@ -509,9 +510,10 @@ class AdaptiveRateLimiter:
                 return await func(*args, **kwargs)
             except Exception as e:
                 error_str = str(e)
-                if "429" in error_str or "ResourceExhausted" in error_str:
+                # Added 503 / UNAVAILABLE to catch block
+                if any(x in error_str for x in ["429", "ResourceExhausted", "503", "UNAVAILABLE", "Overloaded"]):
                     delay = (base_delay * (2 ** retries)) + random.uniform(0.1, 1.0) # Jitter
-                    print(f"⚠️ Quota Exceeded. Retry {retries+1}/{max_retries} in {delay:.2f}s...")
+                    print(f"⚠️ API Busy ({error_str[:50]}...). Retry {retries+1}/{max_retries} in {delay:.2f}s...")
                     await asyncio.sleep(delay)
                     retries += 1
                     if retries > max_retries:
@@ -594,15 +596,24 @@ JSON形式で出力せよ。
 """
         try:
             # Gemma 3 27B (MODEL_PRO) を使用してQAチェックを行うよう変更
+            # Gemmaモデル対応: response_mime_type/schemaを動的に制御
+            gen_config_args = {}
+            if "gemini" in MODEL_PRO.lower():
+                 gen_config_args["response_mime_type"] = "application/json"
+                 gen_config_args["response_schema"] = EvaluationResult
+            
             res = await self.engine._generate_with_retry(
                 model=MODEL_PRO, 
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=EvaluationResult
-                )
+                config=types.GenerateContentConfig(**gen_config_args)
             )
-            return EvaluationResult.model_validate_json(res.text)
+            
+            text = res.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            if text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            
+            return EvaluationResult.model_validate_json(text.strip())
         except Exception as e:
             print(f"QA Check Failed: {e}")
             return EvaluationResult(is_consistent=True, fatal_errors=[], retention_score=50, improvement_advice="Error in QA")
@@ -723,9 +734,9 @@ class UltraEngine:
             # Pydanticバリデーション前にデータ補正 (JSON文字列化)
             if 'mc_profile' in data:
                  if isinstance(data['mc_profile'].get('pronouns'), dict):
-                     data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
+                      data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
                  if isinstance(data['mc_profile'].get('keyword_dictionary'), dict):
-                     data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                      data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
 
             return data
         except Exception as e:
@@ -877,17 +888,24 @@ class UltraEngine:
 {current_rewrite_instruction if current_rewrite_instruction else "なし"}
 """
                     try:
+                        # Gemmaモデル対応のため辞書で動的に構築
+                        gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
+                        if "gemini" in current_model.lower():
+                            gen_config_args["response_mime_type"] = "application/json"
+                            gen_config_args["response_schema"] = EpisodeResponse
+                        
                         res = await self._generate_with_retry(
                             model=current_model, 
                             contents=write_prompt,
-                            config=types.GenerateContentConfig(
-                                response_mime_type="application/json",
-                                response_schema=EpisodeResponse,
-                                temperature=gen_temp, # Pacing applied
-                                safety_settings=self.safety_settings
-                            )
+                            config=types.GenerateContentConfig(**gen_config_args)
                         )
-                        ep_data = json.loads(res.text)
+                        
+                        # JSONパース修正
+                        text_content = res.text.strip()
+                        if text_content.startswith("```json"): text_content = text_content[7:]
+                        elif text_content.startswith("```"): text_content = text_content[3:]
+                        if text_content.endswith("```"): text_content = text_content[:-3]
+                        ep_data = json.loads(text_content.strip())
                         
                         score = ep_data.get('cliffhanger_self_score', 0)
                         
@@ -1192,7 +1210,7 @@ async def create_zip_package(book_id, title, marketing_data):
             reg_data = json.loads(mc_char['registry_data'])
             if reg_data:
                 k_str = reg_data.get('keyword_dictionary', '{}')
-                keyword_dict = json.loads(k_str) if isinstance(k_str, str) else k_str
+                k_dict = json.loads(k_str) if isinstance(k_str, str) else k_str
         except: pass
 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
