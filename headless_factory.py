@@ -33,7 +33,7 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 3.0 Flash (プロット用・JSON対応)
 MODEL_LITE = "gemma-3-12b-it"        # Gemma 3 12B (通常執筆・JSON非対応)
 MODEL_PRO = "gemma-3-27b-it"             # Gemma 3 27B (重要回執筆・JSON非対応)
-MODEL_MARKETING = "gemini-2.5-flash-lite" # マーケティング分析用 (JSON対応)
+MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05" # マーケティング分析用 (JSON対応)
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 
@@ -106,7 +106,7 @@ STYLE_DEFINITIONS = {
     },
     "style_trpg_hardboiled": {
         "name": "ゴブスレ風（蝸牛くも）",
-        "instruction": "【文体模倣: ハードボイルド・即物的】\n1. 形容詞を削ぎ落とし、「彼は剣を振った。ゴブリンが死んだ。」のように事実を短文で積み重ねろ。\n2. 感情描写よりも、装備の点検や戦術の確認といった「プロフェッショナルな動作」を詳細に描け。\n3. 「運命（ダイス）」「神々」といったTRPG的な概念を、俯瞰的な視点として挿入せよ。\n4. グロテスクな描写も、日常の一部として淡々と記述せよ。"
+        "instruction": "【文体模倣: ハードボイルド・即物的な】\n1. 形容詞を削ぎ落とし、「彼は剣を振った。ゴブリンが死んだ。」のように事実を短文で積み重ねろ。\n2. 感情描写よりも、装備の点検や戦術の確認といった「プロフェッショナルな動作」を詳細に描け。\n3. 「運命（ダイス）」「神々」といったTRPG的な概念を、俯瞰的な視点として挿入せよ。\n4. グロテスクな描写も、日常の一部として淡々と記述せよ。"
     },
     "style_chat_log": {
         "name": "掲示板・配信回風（一般的Web様式）",
@@ -134,7 +134,7 @@ STYLE_SAMPLES = {
     "style_comedy_speed": "「おい、カズマ！　ちょっとこれを見なさいよ！　私の華麗なる宴会芸スキルがレベルアップしたわ！」\n「……お前、クエストに行く前に何を習得してんだよ」\n　ギルドの酒場で、駄女神アクアが得意げに水の入ったジョッキを頭に乗せている。\n「ふっふっふ、これで信者からの賽銭も倍増間違いなしね！　さあ、崇めなさい！」\n「崇めるかボケ。大体な、今のパーティーに必要なのは回復魔法の射程延長だろ。なんで『花鳥風月』の持続時間を伸ばしてんだ」\n「ああっ！　私の芸術を否定するなんて、これだから引きこもりは！」\n　俺は頭を抱えた。このパーティー、前途多難すぎる。",
     "style_overlord": "　アインズ・ウール・ゴウンは、玉座にて静かに思考を巡らせていた。\n（……え、何それ。デミウルゴス、また何か恐ろしい計画立ててない？　世界征服とか本気で言ってるの？）\n　内なる鈴木悟の叫びをよそに、骸骨の支配者は威厳たっぷりに頷いてみせる。\n「うむ。デミウルゴスよ、予の考えをよくぞ理解した」\n「ハッ！　至高の御方におかれましては、既にその先の千年王国まで見据えておられるのですね！」\n　守護者たちが一斉に平伏する。その光景に、アインズは存在しない胃が痛むのを覚えた。\n　絶対支配者としてのロールプレイは、今日も綱渡りである。",
     "style_slime_nation": "《解。個体名リムル＝テンペストの魔素量が規定値に達しました。これより『魔王への進化（ハーベストフェスティバル）』を開始します》\n　世界の言葉が頭に響く。どうやら俺、また進化しちゃうらしい。\n「リムル様！　お体の具合が！？」\n　ベニマルたちが慌てているが、俺の意識は急速に眠りへと落ちていく。\n　まあ、ラファエル先生……じゃなくて『智慧之王（ラファエル）』さんがなんとかしてくれるだろう。\n　目が覚めたら、きっとまた強くなっているはずだ。そんな楽観的な思考と共に、俺は深い闇へと沈んでいった。\n　――あ、ついでにスキル『暴食之王（ベルゼビュート）』で周囲の残骸も片付けておいてね。",
-    "style_spider_chaos": "　はいはい、鑑定鑑定。\n【ステータス閲覧権限がありません】\n　って、オイイイイイ！　なんでだよ！　私、頑張ったよね！？\n　ここ迷宮の最下層だぞ？　周り全部バケモノだぞ？\n　目の前には巨大な地龍。絶対勝てない。無理ゲー。詰んだ。\n　……いや、待てよ。私の『韋駄天』スキルと『蜘蛛の糸』を組み合わせれば、ワンチャン逃げ切れるんじゃね？\n　思考加速、オン！　並列意思、作戦会議開始！\n『逃げるが勝ち！』『いや、食べてレベルアップっしょ』『毒合成準備完了！』\n　よし、方針決定。嫌がらせして逃げる！",
+    "style_spider_chaos": "　はいはい、鑑定鑑定。\n【ステータス閲覧権限がありません】\n　って、オイイイイイ！　なんでだよ！　私、頑張ったよね！？\n　ここ迷宮の最下層だぞ？　周り全部バケモノだぞ？\n　目の前には巨大な地龍。絶対勝てない。無理ゲー。詰んだ。\n　……いや, 待てよ。私の『韋駄天』スキルと『蜘蛛の糸』を組み合わせれば、ワンチャン逃げ切れるんじゃね？\n　思考加速、オン！　並列意思、作戦会議開始！\n『逃げるが勝ち！』『いや、食べてレベルアップっしょ』『毒合成準備完了！』\n　よし、方針決定。嫌がらせして逃げる！",
     "style_vrmmo_introspection": "　視界の端で、HPバーがレッドゾーンへと突入する。\n　だが、俺の意識はかつてないほど澄み渡っていた。システムが描画するポリゴンの砕ける光。剣が風を切る鋭い音。その全てが、この仮想世界（VR）における俺の命の鼓動だ。\n「――スターバースト・ストリーム！」\n　叫びと共に、システム・アシストに身を委ねるのではなく、自らの意志で剣速を加速させる。\n　十六連撃。その全てを叩き込むコンマ数秒の間、俺は確かにここに生きていた。\n　仮想と現実の境界線など、剣を振るうこの瞬間には何の意味も持たないのだ。",
     "style_action_heroic": "　鐘の音が鳴り響く。\n　それは始まりの合図であり、英雄への階梯を登る者への祝福だ。\n「う、おおおおおおおおっ！」\n　少年は吼えた。憧れに届くために。あの人の隣に立つために。\n　全身から血を流し、意識はとっくに限界を超えている。それでも、彼の足は止まらない。\n　ドゴォォォォン！！\n　ミノタウロスの剛腕を、極小のナイフ一本で受け止める。\n　――冒険者とは。英雄とは。\n　その答えを刻み込むように、白き閃光がダンジョンの闇を切り裂いた。",
     "style_otome_misunderstand": "　大変です！　破滅フラグです！\n　私の脳内会議（議長：私）が緊急招集された。\n『どうする？　このままだとジオルド王子の好感度が下がって断罪ルートよ！』\n『とりあえず土下座？　それともお菓子で買収？』\n『よし、畑を耕そう！　土と触れ合えば心も落ち着くはず！』\n　そう決意して鍬を握りしめた私を、なぜか王子は熱っぽい瞳で見つめている。\n「……カタリナ、君は本当に予想がつかないね。そういうところが、愛おしい」\n　えっ、何が？　土汚れがですか？\n　相変わらず王子の美的センスは謎だと思いつつ、私は今日も元気に土を耕すのだった。",
@@ -190,6 +190,8 @@ class WorldState(BaseModel):
     immutable: str = Field(..., description="JSON string representing immutable settings")
     mutable: str = Field(..., description="JSON string representing mutable settings")
     revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
+    revealed_mysteries: List[str] = Field(default_factory=list, description="解明済みの伏線リスト")
+    pending_foreshadowing: List[str] = Field(default_factory=list, description="未回収の伏線リスト")
 
 class ConsistencyResult(BaseModel):
     is_consistent: bool = Field(..., description="設定矛盾がないか")
@@ -201,6 +203,7 @@ class EvaluationItem(BaseModel):
     ep_num: int
     total_score: int
     improvement_point: str
+    retention_score: int = Field(..., description="読者維持率予測スコア(0-100)")
 
 class MarketingAssets(BaseModel):
     evaluations: List[EvaluationItem]
@@ -211,10 +214,18 @@ class MarketingAssets(BaseModel):
 # ==========================================
 PROMPT_TEMPLATES = {
     "system_rules": """# SYSTEM RULES: STRICT ADHERENCE REQUIRED
-1. [PRONOUNS] 主人公の一人称・二人称は以下を厳守せよ: {pronouns}
-   ※「俺」設定なのに「僕」と言う等のキャラ崩壊は禁止する。
-2. [KEYWORD DICTIONARY] 以下の用語・ルビ・特殊呼称を必ず使用せよ: {keywords}
-3. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
+【キャラクター定義の絶対遵守】
+以下のキャラクター設定を物語の最後まで**固定**せよ。途中で口調や一人称を変更することは「重大なエラー」とみなす。
+
+1. **主人公名**: {mc_name}
+2. **基本口調**: 「{mc_tone}」
+3. **性格特性**: {mc_personality}
+4. **一人称・二人称**: {pronouns}
+   ※「俺」設定なのに「僕」や「私」を使うことを固く禁ずる。
+   ※相手への呼び方（お前、あんた、貴様など）も固定せよ。
+
+5. [KEYWORD DICTIONARY] 以下の用語・ルビ・特殊呼称を必ず使用せよ: {keywords}
+6. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
    ※単なる状況説明ではなく、主人公のフィルターを通した『歪んだ世界観』として情景を記述せよ。
 
 【文体指定: {style_name}】
@@ -322,35 +333,31 @@ class TextFormatter:
 class DatabaseManager:
     def __init__(self, db_path):
         self.db_path = db_path
-        self._init_tables()
+        self.queue = asyncio.Queue()
+        self._worker_task = None
 
-    @contextmanager
-    def _get_conn(self):
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            conn.close()
+    async def start(self):
+        self._worker_task = asyncio.create_task(self._worker())
+        await self._init_tables_async()
 
-    def _init_tables(self):
-        with self._get_conn() as conn:
-            conn.executescript('''
+    async def _init_tables_async(self):
+        await self.execute('''
                 CREATE TABLE IF NOT EXISTS books (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, genre TEXT, concept TEXT,
                     synopsis TEXT, catchcopy TEXT, target_eps INTEGER, style_dna TEXT,
                     target_audience TEXT, special_ability TEXT DEFAULT '',
                     status TEXT DEFAULT 'active', created_at TEXT, marketing_data TEXT, sub_plots TEXT
                 );
+            ''')
+        await self.execute('''
                 CREATE TABLE IF NOT EXISTS bible (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, 
                     immutable TEXT, mutable TEXT, revealed TEXT,
+                    revealed_mysteries TEXT, pending_foreshadowing TEXT,
                     last_updated TEXT
                 );
+            ''')
+        await self.execute('''
                 CREATE TABLE IF NOT EXISTS plot (
                     book_id INTEGER, ep_num INTEGER, title TEXT, summary TEXT,
                     main_event TEXT, sub_event TEXT, pacing_type TEXT,
@@ -360,6 +367,8 @@ class DatabaseManager:
                     scenes TEXT,
                     PRIMARY KEY(book_id, ep_num)
                 );
+            ''')
+        await self.execute('''
                 CREATE TABLE IF NOT EXISTS chapters (
                     book_id INTEGER, ep_num INTEGER, title TEXT, content TEXT,
                     score_story INTEGER, killer_phrase TEXT, reader_retention_score INTEGER,
@@ -367,24 +376,52 @@ class DatabaseManager:
                     ai_insight TEXT, retention_data TEXT, summary TEXT, world_state TEXT,
                     created_at TEXT, PRIMARY KEY(book_id, ep_num)
                 );
+            ''')
+        await self.execute('''
                 CREATE TABLE IF NOT EXISTS characters (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, name TEXT, role TEXT, dna_json TEXT, monologue_style TEXT
                 );
             ''')
 
-    def execute(self, query, params=()):
-        with self._get_conn() as conn:
-            cursor = conn.execute(query, params)
-            return cursor.lastrowid
+    async def execute(self, query, params=()):
+        future = asyncio.get_running_loop().create_future()
+        await self.queue.put((query, params, future))
+        return await future
 
-    def fetch_all(self, query, params=()):
-        with self._get_conn() as conn:
-            return [dict(row) for row in conn.execute(query, params).fetchall()]
+    async def _worker(self):
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL;")
+        while True:
+            query, params, future = await self.queue.get()
+            try:
+                is_write = query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE"))
+                cursor = conn.execute(query, params)
+                if is_write:
+                    conn.commit()
+                    future.set_result(cursor.lastrowid)
+                else:
+                    future.set_result(None)
+                    pass
+            except Exception as e:
+                future.set_exception(e)
+            finally:
+                self.queue.task_done()
+
+    async def fetch_all(self, query, params=()):
+        def _fetch():
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                conn.row_factory = sqlite3.Row
+                return [dict(row) for row in conn.execute(query, params).fetchall()]
+        return await asyncio.to_thread(_fetch)
             
-    def fetch_one(self, query, params=()):
-        with self._get_conn() as conn:
-            row = conn.execute(query, params).fetchone()
-            return dict(row) if row else None
+    async def fetch_one(self, query, params=()):
+        def _fetch():
+            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(query, params).fetchone()
+                return dict(row) if row else None
+        return await asyncio.to_thread(_fetch)
 
 db = DatabaseManager(DB_FILE)
 
@@ -395,38 +432,44 @@ class DynamicBibleManager:
     def __init__(self, book_id):
         self.book_id = book_id
     
-    def get_current_state(self) -> WorldState:
-        row = db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
+    async def get_current_state(self) -> WorldState:
+        row = await db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
         if not row:
-            return WorldState(immutable="{}", mutable="{}", revealed=[])
+            return WorldState(immutable="{}", mutable="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[])
         try:
             return WorldState(
                 immutable=row['immutable'] if row['immutable'] else "{}",
                 mutable=row['mutable'] if row['mutable'] else "{}",
-                revealed=json.loads(row['revealed']) if row['revealed'] else []
+                revealed=json.loads(row['revealed']) if row['revealed'] else [],
+                revealed_mysteries=json.loads(row['revealed_mysteries']) if row.get('revealed_mysteries') else [],
+                pending_foreshadowing=json.loads(row['pending_foreshadowing']) if row.get('pending_foreshadowing') else []
             )
         except:
-            return WorldState(immutable="{}", mutable="{}", revealed=[])
+            return WorldState(immutable="{}", mutable="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[])
 
-    def update_state(self, new_state: WorldState):
-        db.execute(
-            "INSERT INTO bible (book_id, immutable, mutable, revealed, last_updated) VALUES (?,?,?,?,?)",
+    async def update_state(self, new_state: WorldState):
+        await db.execute(
+            "INSERT INTO bible (book_id, immutable, mutable, revealed, revealed_mysteries, pending_foreshadowing, last_updated) VALUES (?,?,?,?,?,?,?)",
             (
                 self.book_id,
                 new_state.immutable, 
-                new_state.mutable,   
+                new_state.mutable,    
                 json.dumps(new_state.revealed, ensure_ascii=False),
+                json.dumps(new_state.revealed_mysteries, ensure_ascii=False),
+                json.dumps(new_state.pending_foreshadowing, ensure_ascii=False),
                 datetime.datetime.now().isoformat()
             )
         )
 
-    def get_prompt_context(self) -> str:
-        state = self.get_current_state()
+    async def get_prompt_context(self) -> str:
+        state = await self.get_current_state()
         return f"""
 【WORLD STATE (Current)】
 [IMMUTABLE]: {state.immutable}
 [MUTABLE]: {state.mutable}
 [REVEALED]: {json.dumps(state.revealed, ensure_ascii=False)}
+[SOLVED MYSTERIES]: {json.dumps(state.revealed_mysteries, ensure_ascii=False)}
+[PENDING FORESHADOWING]: {json.dumps(state.pending_foreshadowing, ensure_ascii=False)}
 """
 
 # ==========================================
@@ -484,11 +527,18 @@ class UltraEngine:
         pronouns_json = json.dumps(p_data, ensure_ascii=False)
         keywords_json = json.dumps(k_data, ensure_ascii=False)
         monologue = mc_profile.get('monologue_style', '標準')
+        
+        mc_name = mc_profile.get('name', '主人公')
+        mc_tone = mc_profile.get('tone', '標準')
+        mc_personality = mc_profile.get('personality', '標準')
 
         style_def = STYLE_DEFINITIONS.get(style, STYLE_DEFINITIONS["style_web_standard"])
         style_sample = STYLE_SAMPLES.get(style, STYLE_SAMPLES["style_web_standard"])
 
         return PROMPT_TEMPLATES["system_rules"].format(
+            mc_name=mc_name,
+            mc_tone=mc_tone,
+            mc_personality=mc_personality,
             pronouns=pronouns_json, 
             keywords=keywords_json, 
             monologue_style=monologue,
@@ -545,7 +595,7 @@ class UltraEngine:
 3. テーマ: {keywords}
 
 【Task: Phase 1 (Ep 1-25)】
-作品設定と、前半パートである**第1話〜第25話**の詳細プロットを作成せよ。プロットは１話１０００字程度
+作品設定と、前半パートである**第1話〜第25話**の詳細プロットを作成せよ。
 前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
 注: mc_profile内の pronouns と keyword_dictionary は有効なJSON文字列として出力すること。
 """
@@ -587,7 +637,7 @@ class UltraEngine:
 {context_summ}
 
 【Task: Phase 2 (Ep 26-50)】
-前半の続きとして、**第26話〜第50話（最終話）**を作成せよ。プロットは１話１０００字程度
+前半の続きとして、**第26話〜第50話（最終話）**を作成せよ。
 物語の伏線を回収し、感動的なフィナーレへ導くこと。
 """
         try:
@@ -607,7 +657,7 @@ class UltraEngine:
 
     async def evaluate_consistency(self, ep_text, bible_manager) -> ConsistencyResult:
         """テキストベースの整合性チェック"""
-        state = bible_manager.get_current_state()
+        state = await bible_manager.get_current_state()
         prompt = f"""
 あなたは物語の整合性を監査するAIロジックです。
 以下のエピソード本文と「Bible（世界設定）」を比較し、矛盾を検出してください。
@@ -654,15 +704,16 @@ Mutable: {state.mutable}
 
     async def sync_with_chapter(self, bible_manager, chapter_text):
         """テキストベースのBible自動更新"""
-        current = bible_manager.get_current_state()
+        current = await bible_manager.get_current_state()
         prompt = f"""
 あなたはデータベース管理者です。
-以下のエピソード本文から「新たに確定した設定」「変化したステータス」「読者に開示された秘密」を抽出し、
+以下のエピソード本文から「新たに確定した設定」「変化したステータス」「読者に開示された秘密」「解明された謎」「新たに張られた伏線」を抽出し、
 WorldStateを更新してください。
 
 【Current State】
 Immutable: {current.immutable}
 Mutable: {current.mutable}
+Pending Foreshadowing: {json.dumps(current.pending_foreshadowing, ensure_ascii=False)}
 
 【Episode Text】
 {chapter_text[:5000]}
@@ -675,6 +726,10 @@ Task:
 (位置、生死、所持品の変化)
 [REVEALED]
 (読者に開示された設定用語、カンマ区切り)
+[SOLVED]
+(回収された伏線・謎、カンマ区切り)
+[PENDING]
+(新たに提示された謎・伏線、カンマ区切り)
 """
         try:
             res = await self._generate_with_retry(
@@ -686,28 +741,41 @@ Task:
             
             imm_match = re.search(r"\[IMMUTABLE\]\s*(.*?)\s*(?=\[MUTABLE\]|$)", text, re.DOTALL)
             mut_match = re.search(r"\[MUTABLE\]\s*(.*?)\s*(?=\[REVEALED\]|$)", text, re.DOTALL)
-            rev_match = re.search(r"\[REVEALED\]\s*(.*?)\s*$", text, re.DOTALL)
+            rev_match = re.search(r"\[REVEALED\]\s*(.*?)\s*(?=\[SOLVED\]|$)", text, re.DOTALL)
+            sol_match = re.search(r"\[SOLVED\]\s*(.*?)\s*(?=\[PENDING\]|$)", text, re.DOTALL)
+            pen_match = re.search(r"\[PENDING\]\s*(.*?)\s*$", text, re.DOTALL)
             
             imm_str = imm_match.group(1).strip() if imm_match else "{}"
             mut_str = mut_match.group(1).strip() if mut_match else "{}"
             rev_str = rev_match.group(1).strip() if rev_match else ""
+            sol_str = sol_match.group(1).strip() if sol_match else ""
+            pen_str = pen_match.group(1).strip() if pen_match else ""
             
             revealed_list = [x.strip() for x in rev_str.split(',') if x.strip()]
+            solved_list = [x.strip() for x in sol_str.split(',') if x.strip()]
+            new_pending_list = [x.strip() for x in pen_str.split(',') if x.strip()]
             
+            current_pending = current.pending_foreshadowing
+            # 解決された伏線を削除
+            updated_pending = [p for p in current_pending if p not in solved_list] + new_pending_list
+            updated_solved = current.revealed_mysteries + solved_list
+
             new_state = WorldState(
                 immutable=imm_str,
                 mutable=mut_str,
-                revealed=list(set(current.revealed + revealed_list))
+                revealed=list(set(current.revealed + revealed_list)),
+                revealed_mysteries=list(set(updated_solved)),
+                pending_foreshadowing=list(set(updated_pending))
             )
-            bible_manager.update_state(new_state)
+            await bible_manager.update_state(new_state)
+            return new_state
         except Exception as e:
             print(f"Bible Sync Error: {e}")
+            return current
 
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
         """
         【執筆エンジン大規模改修】ワンショット一括生成ロジック
-        - 1話分のプロット全体を入力し、1500〜2000字を一気に出力する。
-        - 3シーン分割ループを廃止。
         """
         
         all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
@@ -718,7 +786,7 @@ Task:
         bible_manager = DynamicBibleManager(book_data['book_id'])
         
         # 前話の文脈取得
-        prev_ep_row = db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
+        prev_ep_row = await db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
         prev_context_text = prev_ep_row['content'][-500:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
 
         system_rules = self._generate_system_rules(book_data['mc_profile'], style=style_dna_str)
@@ -736,7 +804,7 @@ Task:
             
             # モデル最適化ロジック: 1話、50話、高テンション回はPROモデルを使用
             tension = plot.get('tension', 50)
-            current_model = MODEL_LITE
+            current_model = target_model
             if ep_num == 1 or ep_num == 50 or tension >= 80:
                 current_model = MODEL_PRO
             
@@ -750,6 +818,9 @@ Task:
 """
             
             # 執筆プロンプト構築
+            bible_context = await bible_manager.get_prompt_context()
+            world_state = await bible_manager.get_current_state()
+            
             write_prompt = f"""
 {system_rules}
 {vocab_filter}
@@ -758,6 +829,10 @@ Task:
 
 【Role: Novelist ({current_model})】
 以下のプロットに基づき、**第{ep_num}話**の本文を一括執筆せよ。
+特に【Pending Foreshadowing】にある未回収の伏線を優先的に解消するよう意識せよ。
+
+【Pending Foreshadowing (Priority)】
+{json.dumps(world_state.pending_foreshadowing, ensure_ascii=False)}
 
 【前話からの文脈】
 ...{prev_context_text}
@@ -766,7 +841,7 @@ Task:
 {episode_plot_text}
 
 【World Context (Bible)】
-{bible_manager.get_prompt_context()}
+{bible_context}
 
 【Rewrite Instruction】
 {rewrite_instruction if rewrite_instruction else "なし"}
@@ -778,7 +853,7 @@ Task:
                     res = await self._generate_with_retry(
                         model=current_model, 
                         contents=write_prompt,
-                        config=types.GenerateContentConfig(safety_settings=self.safety_settings) # Text Output
+                        config=types.GenerateContentConfig(safety_settings=self.safety_settings)
                     )
                     scene_text = res.text
                 except Exception as e:
@@ -786,18 +861,28 @@ Task:
                     scene_text = "（生成エラーが発生しました）"
 
             full_content = scene_text.strip()
-            prev_context_text = full_content[-500:] # 次の話のために更新
-
-            # --- Auto-Sync Bible (1話完了後に実施) ---
-            await self.sync_with_chapter(bible_manager, full_content)
+            
+            # 1. WorldStateの更新
+            new_state = await self.sync_with_chapter(bible_manager, full_content)
+            
+            # 2. 次の話のための文脈要約を生成
+            summary_prompt = f"以下の第{ep_num}話の内容を300文字で要約せよ:\n{full_content[:5000]}"
+            try:
+                sum_res = await self._generate_with_retry(model=MODEL_LITE, contents=summary_prompt, config=types.GenerateContentConfig())
+                ep_summary = sum_res.text.strip()
+            except:
+                ep_summary = full_content[-300:]
+                
+            # 3. コンテキスト注入（次ループ用変数更新）
+            prev_context_text = f"（第{ep_num}話要約）{ep_summary}\n（直近の文）{full_content[-200:]}"
 
             # エピソード完了処理
             full_chapters.append({
                 "ep_num": ep_num,
                 "title": plot['title'],
                 "content": full_content,
-                "summary": plot.get('resolution', '')[:100],
-                "world_state": bible_manager.get_current_state().model_dump()
+                "summary": ep_summary,
+                "world_state": new_state.model_dump()
             })
 
         return {"chapters": full_chapters}
@@ -821,8 +906,8 @@ Task:
         """MODEL_MARKETING (Gemini 2.0 Flash Lite) を使用して分析"""
         print("Starting Recursive Analysis (Sliding Window)...")
         
-        chapters = db.fetch_all("SELECT ep_num, title, summary, content FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
-        book_info = db.fetch_one("SELECT title FROM books WHERE id=?", (book_id,))
+        chapters = await db.fetch_all("SELECT ep_num, title, summary, content FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
+        book_info = await db.fetch_one("SELECT title FROM books WHERE id=?", (book_id,))
         if not chapters: return [], [], None
 
         chunk_size = 5
@@ -841,14 +926,14 @@ Task:
 注: marketing_assets はJSON形式の文字列として出力すること。
 
 Task 1: 各話スコアリング & 改善提案
-Task 2: マーケティング素材生成 (キャッチコピー、タグ、近況ノート)
+Task 2: 読者離脱リスクの予測 (retention_score: 0-100)
+Task 3: マーケティング素材生成 (キャッチコピー、タグ、近況ノート)
 
 【作品タイトル】{book_info['title']}
 【物語全体ダイジェスト】
 {master_context}
 """
         try:
-            # JSONモード対応モデルを使用
             res = await self._generate_with_retry(
                 model=MODEL_MARKETING,
                 contents=prompt,
@@ -869,10 +954,15 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             evaluations_list = [e.model_dump() for e in data.evaluations]
             
             for evaluation in evaluations_list:
-                if evaluation.get('total_score', 0) < 60: 
-                      rewrite_target_eps.append(evaluation.get('ep_num'))
+                is_low_quality = evaluation.get('total_score', 0) < 60
+                is_high_risk = evaluation.get('retention_score', 100) < 60
+                
+                if is_low_quality or is_high_risk: 
+                       rewrite_target_eps.append(evaluation.get('ep_num'))
+                       if is_high_risk:
+                           evaluation['improvement_point'] += " 【緊急指示】読者離脱を防ぐため、MODEL_PROを使用して『波乱』や『衝撃的な展開』を強制的に注入せよ。"
             
-            db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(marketing_assets_dict, ensure_ascii=False), book_id))
+            await db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(marketing_assets_dict, ensure_ascii=False), book_id))
             
             return evaluations_list, rewrite_target_eps, marketing_assets_dict
             
@@ -889,16 +979,16 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
         bible_manager = DynamicBibleManager(book_data['book_id'])
 
         for ep_id in target_ep_ids:
-            chapter_row = db.fetch_one("SELECT content FROM chapters WHERE book_id=? AND ep_num=?", (book_data['book_id'], ep_id))
+            chapter_row = await db.fetch_one("SELECT content FROM chapters WHERE book_id=? AND ep_num=?", (book_data['book_id'], ep_id))
             consistency = await self.evaluate_consistency(chapter_row['content'], bible_manager)
+            
+            eval_data = eval_map.get(ep_id, {})
             
             if not consistency.rewrite_needed and ep_id not in target_ep_ids:
                 continue
 
-            eval_data = eval_map.get(ep_id, {})
             instruction = f"【編集指示】\n{eval_data.get('improvement_point', '')}\n矛盾修正: {','.join(consistency.fatal_errors)}"
             
-            # リライトはPROモデルで行う
             tasks.append(self.write_episodes(
                 book_data, ep_id, ep_id, 
                 style_dna_str=style_dna_str, 
@@ -910,11 +1000,11 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
         results = await asyncio.gather(*tasks)
         for res in results:
             if res and 'chapters' in res:
-                self.save_chapters_to_db(book_data['book_id'], res['chapters'])
+                await self.save_chapters_to_db(book_data['book_id'], res['chapters'])
                 rewritten_count += 1
         return rewritten_count
 
-    def save_blueprint_to_db(self, data, genre, style_dna_str):
+    async def save_blueprint_to_db(self, data, genre, style_dna_str):
         if isinstance(data, dict): data_dict = data
         else: data_dict = data.model_dump()
         
@@ -927,24 +1017,23 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
         
         ability_val = data_dict['mc_profile'].get('ability', '')
         
-        # target_eps を 50 に設定
-        bid = db.execute(
+        bid = await db.execute(
             "INSERT INTO books (title, genre, synopsis, concept, target_eps, style_dna, status, special_ability, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
             (data_dict['title'], genre, data_dict['synopsis'], data_dict['concept'], 50, dna, 'active', ability_val, datetime.datetime.now().isoformat())
         )
         c_dna = json.dumps(data_dict['mc_profile'], ensure_ascii=False)
         monologue_val = data_dict['mc_profile'].get('monologue_style', '')
-        db.execute("INSERT INTO characters (book_id, name, role, dna_json, monologue_style) VALUES (?,?,?,?,?)", (bid, data_dict['mc_profile']['name'], '主人公', c_dna, monologue_val))
+        await db.execute("INSERT INTO characters (book_id, name, role, dna_json, monologue_style) VALUES (?,?,?,?,?)", (bid, data_dict['mc_profile']['name'], '主人公', c_dna, monologue_val))
         
-        db.execute("INSERT INTO bible (book_id, immutable, mutable, revealed, last_updated) VALUES (?,?,?,?,?)",
-                   (bid, "{}", "{}", "[]", datetime.datetime.now().isoformat()))
+        await db.execute("INSERT INTO bible (book_id, immutable, mutable, revealed, revealed_mysteries, pending_foreshadowing, last_updated) VALUES (?,?,?,?,?,?,?,?)",
+                    (bid, "{}", "{}", "[]", "[]", "[]", datetime.datetime.now().isoformat()))
 
         saved_plots = []
         for p in data_dict['plots']:
             full_title = f"第{p['ep_num']}話 {p['title']}"
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
             scenes_json = json.dumps(p.get('scenes', []), ensure_ascii=False)
-            db.execute(
+            await db.execute(
                 """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, status, scenes)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (bid, p['ep_num'], full_title, main_ev, 
@@ -954,13 +1043,13 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             saved_plots.append(p)
         return bid, saved_plots
 
-    def save_additional_plots_to_db(self, book_id, data_p2):
+    async def save_additional_plots_to_db(self, book_id, data_p2):
         saved_plots = []
         for p in data_p2['plots']:
             full_title = f"第{p['ep_num']}話 {p['title']}"
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
             scenes_json = json.dumps(p.get('scenes', []), ensure_ascii=False)
-            db.execute(
+            await db.execute(
                 """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, status, scenes)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (book_id, p['ep_num'], full_title, main_ev, 
@@ -970,18 +1059,18 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             saved_plots.append(p)
         return saved_plots
 
-    def save_chapters_to_db(self, book_id, chapters_list):
+    async def save_chapters_to_db(self, book_id, chapters_list):
         count = 0
         if not chapters_list: return 0
         for ch in chapters_list:
             content = TextFormatter.format(ch['content'])
             w_state = json.dumps(ch.get('world_state', {}), ensure_ascii=False) if ch.get('world_state') else ""
-            db.execute(
+            await db.execute(
                 """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
                    VALUES (?,?,?,?,?,?,?,?)""",
                 (book_id, ch['ep_num'], ch.get('title', f"第{ch['ep_num']}話"), content, ch.get('summary', ''), '', w_state, datetime.datetime.now().isoformat())
             )
-            db.execute("UPDATE plot SET status='completed' WHERE book_id=? AND ep_num=?", (book_id, ch['ep_num']))
+            await db.execute("UPDATE plot SET status='completed' WHERE book_id=? AND ep_num=?", (book_id, ch['ep_num']))
             count += 1
         return count
 
@@ -993,7 +1082,7 @@ async def task_plot_gen_phase2(engine, bid, genre, style, mc_personality, mc_ton
     data2 = await engine.generate_universe_blueprint_phase2(genre, style, mc_personality, mc_tone, keywords, data1)
 
     if data2 and 'plots' in data2:
-        saved_plots_p2 = engine.save_additional_plots_to_db(bid, data2)
+        saved_plots_p2 = await engine.save_additional_plots_to_db(bid, data2)
         print(f"Phase 2 Plots Saved ({len(saved_plots_p2)} eps).")
         return data2['plots']
     else:
@@ -1001,9 +1090,9 @@ async def task_plot_gen_phase2(engine, bid, genre, style, mc_personality, mc_ton
         return []
 
 async def task_write_batch(engine, bid, start_ep, end_ep):
-    book_info = db.fetch_one("SELECT * FROM books WHERE id=?", (bid,))
-    plots = db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (bid,))
-    mc = db.fetch_one("SELECT * FROM characters WHERE book_id=? AND role='主人公'", (bid,))
+    book_info = await db.fetch_one("SELECT * FROM books WHERE id=?", (bid,))
+    plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (bid,))
+    mc = await db.fetch_one("SELECT * FROM characters WHERE book_id=? AND role='主人公'", (bid,))
 
     try:
         style_dna_json = json.loads(book_info['style_dna'])
@@ -1019,8 +1108,6 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
             except: pass
 
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
-    
-    # 一括生成なのでAPI負荷が低いため、並列数を少し上げる
     semaphore = asyncio.Semaphore(3) 
 
     tasks = []
@@ -1030,8 +1117,6 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
 
     for p in target_plots:
         ep_num = p['ep_num']
-        
-        # モデル選択は write_episodes 内で行われるが、念のためデフォルトを渡す
         tasks.append(engine.write_episodes(
             full_data, 
             ep_num, 
@@ -1046,7 +1131,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     total_count = 0
     for res_data in results:
         if res_data and 'chapters' in res_data:
-            c = engine.save_chapters_to_db(bid, res_data['chapters'])
+            c = await engine.save_chapters_to_db(bid, res_data['chapters'])
             total_count += c
             
     print(f"Batch Done (Ep {start_ep}-{end_ep}). Total Episodes Written: {total_count}")
@@ -1097,14 +1182,14 @@ def load_seed():
             "style": selected_style
         }
 
-def create_zip_package(book_id, title, marketing_data):
+async def create_zip_package(book_id, title, marketing_data):
     print("Packing ZIP...")
     buffer = io.BytesIO()
 
-    current_book = db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
-    db_chars = db.fetch_all("SELECT * FROM characters WHERE book_id=?", (book_id,))
-    db_plots = db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
-    chapters = db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
+    current_book = await db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
+    db_chars = await db.fetch_all("SELECT * FROM characters WHERE book_id=?", (book_id,))
+    db_plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
+    chapters = await db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
 
     def clean_filename_title(t):
         return re.sub(r'[\\/:*?"<>|]', '', re.sub(r'^第\d+話[\s　]*', '', t)).strip()
@@ -1207,72 +1292,68 @@ async def main():
         print("Error: GEMINI_API_KEY is missing.")
         return
 
+    await db.start() # Database Worker Start
     engine = UltraEngine(API_KEY)
 
     print("Starting Factory Pipeline (Async / One-Shot Mode)...")
 
-    #while True:
     try:
         seed = load_seed()
-            
-            # Step 1: 1-25話プロット
+        
+        # Step 1: 1-25話プロット
         print("Step 1a: Generating Plot Phase 1 (Ep 1-25)...")
-            data1 = await engine.generate_universe_blueprint_phase1(
-                seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
+        data1 = await engine.generate_universe_blueprint_phase1(
+            seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
+        )
+        
+        if not data1: 
+            print("Plot Gen Phase 1 failed.")
+            return
+
+        bid, plots_p1 = await engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
+        print(f"Phase 1 Saved. ID: {bid}")
+        
+        print("Step 2: Starting Parallel Execution (Write P1 vs Gen P2)...")
+        
+        # Phase 1 執筆 (1-25話)
+        task_write_p1 = asyncio.create_task(
+            task_write_batch(engine, bid, start_ep=1, end_ep=25)
+        )
+        
+        # Phase 2 プロット生成 (26-50話)
+        task_gen_p2 = asyncio.create_task(
+            task_plot_gen_phase2(
+                engine, bid, seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords'], data1
             )
-            
-            if not data1: 
-                print("Plot Gen Phase 1 failed. Retrying in 10s...")
-                await asyncio.sleep(1)
-                continue
+        )
+        
+        count_p1, full_data_p1, saved_style = await task_write_p1
+        await task_gen_p2
+        
+        print("Parallel Execution Completed. Proceeding to Write Phase 2 (Ep 26-50)...")
 
-            bid, plots_p1 = engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
-            print(f"Phase 1 Saved. ID: {bid}")
-            
-            print("Step 2: Starting Parallel Execution (Write P1 vs Gen P2)...")
-            
-            # Phase 1 執筆 (1-25話)
-            task_write_p1 = asyncio.create_task(
-                task_write_batch(engine, bid, start_ep=1, end_ep=25)
-            )
-            
-            # Phase 2 プロット生成 (26-50話)
-            task_gen_p2 = asyncio.create_task(
-                task_plot_gen_phase2(
-                    engine, bid, seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords'], data1
-                )
-            )
-            
-            count_p1, full_data_p1, saved_style = await task_write_p1
-            await task_gen_p2
-            
-            print("Parallel Execution Completed. Proceeding to Write Phase 2 (Ep 26-50)...")
+        # Phase 2 執筆 (26-50話)
+        count_p2, full_data_final, _ = await task_write_batch(engine, bid, start_ep=26, end_ep=50)
+        
+        full_data = full_data_final 
 
-            # Phase 2 執筆 (26-50話)
-            count_p2, full_data_final, _ = await task_write_batch(engine, bid, start_ep=26, end_ep=50)
-            
-            full_data = full_data_final 
+        evals, rewrite_targets, assets = await task_analyze_marketing(engine, bid)
+        print(f"Rewriting Targets (Consistency & Low Score): {rewrite_targets}")
 
-            evals, rewrite_targets, assets = await task_analyze_marketing(engine, bid)
-            print(f"Rewriting Targets (Consistency & Low Score): {rewrite_targets}")
+        if rewrite_targets:
+            await task_rewrite(engine, full_data, rewrite_targets, evals, saved_style)
 
-            if rewrite_targets:
-                await task_rewrite(engine, full_data, rewrite_targets, evals, saved_style)
-
-            book_info = db.fetch_one("SELECT title FROM books WHERE id=?", (bid,))
-            title = book_info['title']
-            
-            zip_bytes = create_zip_package(bid, title, assets)
-            send_email(zip_bytes, title)
-            print(f"Mission Complete: {title}. Sleeping for next run...")
-            
-            await asyncio.sleep(10) 
-
-        except Exception as e:
-            print(f"Pipeline Critical Error: {e}")
-            import traceback
-            traceback.print_exc()
-            await asyncio.sleep(10)
+        book_info = await db.fetch_one("SELECT title FROM books WHERE id=?", (bid,))
+        title = book_info['title']
+        
+        zip_bytes = await create_zip_package(bid, title, assets)
+        send_email(zip_bytes, title)
+        print(f"Mission Complete: {title}. System shutting down.")
+        
+    except Exception as e:
+        print(f"Pipeline Critical Error: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     asyncio.run(main())
