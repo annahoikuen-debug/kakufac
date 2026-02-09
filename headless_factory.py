@@ -33,6 +33,7 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 2.0 Flash (プロット・高品質・スキーマ対応)
 MODEL_LITE = "gemma-3-12b-it"        # Gemma 3相当の軽量モデル（スキーマ対応のためGemini系推奨）
 MODEL_PRO = "gemma-3-27b-it"             # 高品質推論用
+MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05" # マーケティング分析用
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 
@@ -641,7 +642,7 @@ class UltraEngine:
             return None
 
     async def evaluate_consistency(self, ep_text, bible_manager) -> ConsistencyResult:
-        """【構造改革】リライト要否の論理判定"""
+        """【構造改革】リライト要否の論理判定 (Text-Based Regex Parsing)"""
         state = bible_manager.get_current_state()
         prompt = f"""
 あなたは物語の整合性を監査するAIロジックです。
@@ -659,31 +660,42 @@ Mutable: {state.mutable}
 2. 設定された物理法則や能力に違反していないか？
 3. キャラの口調や一人称（Bible外だが文脈で判断）が崩壊していないか？
 
-重大な矛盾がある場合は rewrite_needed: true とせよ。
+重大な矛盾がある場合は、以下の形式で出力せよ。矛盾がない場合は「SAFE」と出力せよ。
+
+[DECISION] REWRITE_NEEDED
+[REASONS]
+- 矛盾点1
+- 矛盾点2
 """
         try:
             res = await self._generate_with_retry(
                 model=MODEL_LITE,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=ConsistencyResult,
-                    safety_settings=self.safety_settings
-                )
+                config=types.GenerateContentConfig(safety_settings=self.safety_settings)
             )
-            return ConsistencyResult.model_validate_json(res.text)
+            text = res.text
+            is_rewrite = "REWRITE_NEEDED" in text
+            reasons = []
+            if is_rewrite:
+                reasons = re.findall(r"-\s*(.*)", text)
+            
+            return ConsistencyResult(
+                is_consistent=not is_rewrite,
+                fatal_errors=reasons,
+                minor_errors=[],
+                rewrite_needed=is_rewrite
+            )
         except Exception as e:
             print(f"Consistency Check Error: {e}")
             return ConsistencyResult(is_consistent=True, fatal_errors=[], minor_errors=[], rewrite_needed=False)
 
     async def sync_with_chapter(self, bible_manager, chapter_text):
-        """【知能統合】本文からBibleを自動更新"""
+        """【知能統合】本文からBibleを自動更新 (Text-Based Regex Parsing)"""
         current = bible_manager.get_current_state()
         prompt = f"""
 あなたはデータベース管理者です。
 以下のエピソード本文から「新たに確定した設定」「変化したステータス」「読者に開示された秘密」を抽出し、
 WorldStateを更新してください。
-注: immutable, mutable はJSON形式の文字列として出力すること。
 
 【Current State】
 Immutable: {current.immutable}
@@ -693,21 +705,41 @@ Mutable: {current.mutable}
 {chapter_text}
 
 Task:
-1. Immutable: 基本的に変更なし。新事実があれば追加。
-2. Mutable: 位置移動、アイテム増減、生死変化を反映。
-3. Revealed: 本文中で読者に説明された用語や設定を追加。
+以下のタグ形式で出力せよ。JSONは使わず、キーバリュー形式のテキストで記述せよ。
+[IMMUTABLE]
+(変更なし、または新事実の追記)
+[MUTABLE]
+(位置、生死、所持品の変化)
+[REVEALED]
+(読者に開示された設定用語、カンマ区切り)
 """
         try:
             res = await self._generate_with_retry(
                 model=MODEL_LITE,
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=WorldState,
-                    safety_settings=self.safety_settings
-                )
+                config=types.GenerateContentConfig(safety_settings=self.safety_settings)
             )
-            new_state = WorldState.model_validate_json(res.text)
+            text = res.text
+            
+            imm_match = re.search(r"\[IMMUTABLE\]\s*(.*?)\s*(?=\[MUTABLE\]|$)", text, re.DOTALL)
+            mut_match = re.search(r"\[MUTABLE\]\s*(.*?)\s*(?=\[REVEALED\]|$)", text, re.DOTALL)
+            rev_match = re.search(r"\[REVEALED\]\s*(.*?)\s*$", text, re.DOTALL)
+            
+            imm_str = imm_match.group(1).strip() if imm_match else "{}"
+            mut_str = mut_match.group(1).strip() if mut_match else "{}"
+            rev_str = rev_match.group(1).strip() if rev_match else ""
+            
+            revealed_list = [x.strip() for x in rev_str.split(',') if x.strip()]
+            
+            # 既存のJSON文字列にテキストをマージする簡易的な処理（本来はJSONパースが必要だが、Gemmaの制限回避のためテキスト保存する運用へ）
+            # ここでは前回値とAI出力を保持するため、単純に上書きまたは結合とする
+            # 構造化が必要な場合はMODEL_ULTRALONGを使うべきだが、Bibleはテキストベースで十分機能する
+            
+            new_state = WorldState(
+                immutable=imm_str,
+                mutable=mut_str,
+                revealed=list(set(current.revealed + revealed_list))
+            )
             bible_manager.update_state(new_state)
         except Exception as e:
             print(f"Bible Sync Error: {e}")
@@ -752,6 +784,7 @@ Task:
                 revealed_list = bible_state.revealed
                 
                 # --- Step 2: Segment Design (Gemma 3 27B) ---
+                # MODEL_PRO (Gemma-3-27b) does not support JSON mode. Using Text-Based Design.
                 design_prompt = f"""
 {system_rules}
 {vocab_filter}
@@ -766,6 +799,13 @@ Task:
 【Constraint: Show, Don't Tell】
 1. 読者に伝えるべき「新しい設定」をBibleから**1つだけ**選べ。(required_info)
 2. 既に開示済みリスト（{json.dumps(revealed_list, ensure_ascii=False)}）にある情報は、説明せず当然の前提として扱え。
+
+Task:
+以下の形式で出力せよ。
+[[BLUEPRINT]]
+(執筆用詳細設計図を記述)
+[[REQUIRED_INFO]]
+(今回開示すべき最小限の情報を記述)
 """
                 blueprint_data = None
                 async with semaphore:
@@ -773,13 +813,15 @@ Task:
                         res = await self._generate_with_retry(
                             model=MODEL_PRO, 
                             contents=design_prompt,
-                            config=types.GenerateContentConfig(
-                                response_mime_type="application/json",
-                                response_schema=SceneBlueprint,
-                                safety_settings=self.safety_settings
-                            )
+                            config=types.GenerateContentConfig(safety_settings=self.safety_settings) # No Schema
                         )
-                        blueprint_data = SceneBlueprint.model_validate_json(res.text)
+                        text = res.text
+                        bp_match = re.search(r"\[\[BLUEPRINT\]\]\s*(.*?)\s*\[\[REQUIRED_INFO\]\]\s*(.*)", text, re.DOTALL)
+                        if bp_match:
+                            blueprint_data = SceneBlueprint(blueprint=bp_match.group(1).strip(), required_info=bp_match.group(2).strip())
+                        else:
+                            # Fallback if regex fails (use whole text as blueprint)
+                            blueprint_data = SceneBlueprint(blueprint=text, required_info="なし")
                     except Exception as e:
                         print(f"Design Error Ep{ep_num}-{part_idx}: {e}")
                         blueprint_data = SceneBlueprint(blueprint=scene_plot, required_info="なし")
@@ -856,7 +898,7 @@ Blueprintに従い、シーンを執筆せよ。
             return text_chunk[:1000]
 
     async def analyze_and_create_assets(self, book_id):
-        """【安定化】フィードバックループ統合"""
+        """【安定化】フィードバックループ統合 (Switching to MODEL_MARKETING for JSON support)"""
         print("Starting Recursive Analysis (Sliding Window)...")
         
         chapters = db.fetch_all("SELECT ep_num, title, summary, content FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
@@ -887,8 +929,9 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
 {master_context}
 """
         try:
+            # Gemma models do not support JSON mode. Using MODEL_MARKETING (Gemini 2.0 Flash Lite) for this specific structured task.
             res = await self._generate_with_retry(
-                model=MODEL_LITE,
+                model=MODEL_MARKETING,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -950,6 +993,7 @@ Task 2: マーケティング素材生成 (キャッチコピー、タグ、近�
             
             instruction = f"【編集指示】\n{marketing_instruction}\n{consistency_instruction}"
             
+            # リライト時は品質優先でMODEL_PROを使うが、設計フェーズでは上記の通りテキストベースのデザインが適用される
             tasks.append(self.write_episodes(
                 book_data, 
                 ep_id, 
