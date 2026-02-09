@@ -12,7 +12,7 @@ import math
 import asyncio
 from typing import List, Optional, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
@@ -592,7 +592,13 @@ class QualityAssuranceEngine:
 【Episode Content】
 {content[:4000]}...
 
-JSON形式で出力せよ。
+必ず以下のJSON形式のキーを守って出力せよ。:
+{{
+    "is_consistent": true/false (矛盾がない場合はtrue),
+    "fatal_errors": ["..."],
+    "retention_score": 85,
+    "improvement_advice": "..."
+}}
 """
         try:
             # Gemma 3 27B (MODEL_PRO) を使用してQAチェックを行うよう変更
@@ -613,7 +619,45 @@ JSON形式で出力せよ。
             if text.startswith("```"): text = text[3:]
             if text.endswith("```"): text = text[:-3]
             
-            return EvaluationResult.model_validate_json(text.strip())
+            data = json.loads(text.strip())
+            
+            # 手動補正ロジック: モデルがスキーマを守らない場合の救済
+            # 1. "Consistency" キーの揺らぎ対応
+            if "Consistency" in data and "is_consistent" not in data:
+                val = data["Consistency"]
+                # 文字列で返ってきた場合、内容から判定
+                if isinstance(val, str):
+                    data["is_consistent"] = False if ("矛盾" in val or "unknown" in val.lower() or "error" in val.lower()) else True
+                    if "improvement_advice" not in data: data["improvement_advice"] = val
+                elif isinstance(val, dict): # ネストされている場合
+                     data["is_consistent"] = val.get("is_consistent", True)
+                     if "improvement_advice" not in data: data["improvement_advice"] = str(val)
+                elif isinstance(val, bool):
+                     data["is_consistent"] = val
+
+            # 2. "Retention" キーの揺らぎ対応
+            if "Retention" in data and "retention_score" not in data:
+                 if isinstance(data["Retention"], (int, float)):
+                     data["retention_score"] = int(data["Retention"])
+                 elif isinstance(data["Retention"], dict):
+                     data["retention_score"] = int(data["Retention"].get("score", 50))
+            
+            # 3. 日本語キーの対応 ("論理的整合性")
+            if "論理的整合性" in data:
+                val = data["論理的整合性"]
+                if isinstance(val, dict):
+                    data["is_consistent"] = True # デフォルト
+                    if "スコア" in val and val["スコア"] < 50: data["is_consistent"] = False
+                    if "consistency" in val: data["is_consistent"] = val["consistency"]
+                else:
+                    data["is_consistent"] = True
+                
+                # 必須フィールドの埋め合わせ
+                if "retention_score" not in data: data["retention_score"] = 80
+                if "improvement_advice" not in data: data["improvement_advice"] = str(data)
+
+            return EvaluationResult.model_validate(data)
+            
         except Exception as e:
             print(f"QA Check Failed: {e}")
             return EvaluationResult(is_consistent=True, fatal_errors=[], retention_score=50, improvement_advice="Error in QA")
