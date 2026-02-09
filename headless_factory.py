@@ -38,7 +38,7 @@ MODEL_MARKETING = "gemini-2.5-flash-lite" # マーケティング分析用 (JSON
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
 
 # Global Config: Rate Limits
-MIN_REQUEST_INTERVAL = 0.5
+MIN_REQUEST_INTERVAL = 5.0
 
 # ==========================================
 # 文体定義 & サンプルデータ
@@ -1533,4 +1533,5 @@ async def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
+
     asyncio.run(main())
