@@ -13,7 +13,7 @@ import asyncio
 from contextlib import contextmanager
 from typing import List, Optional, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
@@ -113,13 +113,11 @@ ensure_style_resources()
 # Pydantic Schemas (構造化出力用)
 # ==========================================
 class PlotScene(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     setup: str = Field(..., description="導入")
     conflict: str = Field(..., description="展開")
     climax: str = Field(..., description="結末")
 
 class PlotEpisode(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     ep_num: int
     title: str
     setup: str
@@ -130,7 +128,6 @@ class PlotEpisode(BaseModel):
     scenes: List[str]
 
 class MCProfile(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     name: str
     tone: str
     personality: str
@@ -140,7 +137,6 @@ class MCProfile(BaseModel):
     keyword_dictionary: str = Field(..., description="JSON string mapping unique terms to their reading or definition")
 
 class NovelStructure(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     title: str
     concept: str
     synopsis: str
@@ -148,29 +144,24 @@ class NovelStructure(BaseModel):
     plots: List[PlotEpisode]
 
 class Phase2Structure(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     plots: List[PlotEpisode]
 
 class WorldState(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     immutable: str = Field(..., description="JSON string representing immutable settings")
     mutable: str = Field(..., description="JSON string representing mutable settings")
     revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
 
 class SceneBlueprint(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     blueprint: str = Field(..., description="執筆用詳細設計図")
     required_info: str = Field(..., description="今回開示すべき最小限の情報")
 
 class ConsistencyResult(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     is_consistent: bool = Field(..., description="設定矛盾がないか")
     fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
     minor_errors: List[str] = Field(default_factory=list, description="軽微な矛盾")
     rewrite_needed: bool = Field(..., description="リライトが必要か")
 
 class AnalysisResult(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     score_structure: int
     score_character: int
     score_hook: int
@@ -179,13 +170,11 @@ class AnalysisResult(BaseModel):
     improvement_point: str
 
 class EvaluationItem(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     ep_num: int
     total_score: int
     improvement_point: str
 
 class MarketingAssets(BaseModel):
-    model_config = ConfigDict(extra='forbid')
     evaluations: List[EvaluationItem]
     marketing_assets: str = Field(..., description="JSON string containing marketing assets like catchcopies and tags")
 
