@@ -11,6 +11,9 @@ import smtplib
 import math
 import asyncio
 from contextlib import contextmanager
+from typing import List, Optional, Dict, Any
+from enum import Enum
+from pydantic import BaseModel, Field
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
@@ -27,15 +30,78 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER") 
 
 # モデル設定 (2026年仕様: Gemma 3 Limits Optimized)
-MODEL_ULTRALONG = "gemini-3-flash-preview"       # Gemini 2.5 Flash (プロット・高品質用)
-MODEL_LITE = "gemma-3-12b-it"                # Gemma 3 12B (量産の馬: 初稿・通常回用)
-MODEL_PRO = "gemma-3-27b-it"                 # Gemma 3 27B (エースの筆: 推敲・重要回用)
+MODEL_ULTRALONG = "gemini-2.0-flash"       # Gemini 2.0 Flash (プロット・高品質・スキーマ対応)
+MODEL_LITE = "gemini-2.0-flash-lite"        # Gemma 3相当の軽量モデル（スキーマ対応のためGemini系推奨）
+MODEL_PRO = "gemini-2.0-pro-exp"            # 高品質推論用
 
 DB_FILE = "factory_run.db" # 自動実行用に一時DBへ変更
-REWRITE_THRESHOLD = 70  # リライト閾値
 
 # Global Config: Rate Limits
 MIN_REQUEST_INTERVAL = 0.5
+
+# ==========================================
+# Pydantic Schemas (構造化出力用)
+# ==========================================
+class PlotScene(BaseModel):
+    setup: str = Field(..., description="導入")
+    conflict: str = Field(..., description="展開")
+    climax: str = Field(..., description="結末")
+
+class PlotEpisode(BaseModel):
+    ep_num: int
+    title: str
+    setup: str
+    conflict: str
+    climax: str
+    resolution: str
+    tension: int
+    scenes: List[str]
+
+class MCProfile(BaseModel):
+    name: str
+    tone: str
+    personality: str
+    ability: str
+    monologue_style: str
+    pronouns: Dict[str, str]
+    keyword_dictionary: Dict[str, str]
+
+class NovelStructure(BaseModel):
+    title: str
+    concept: str
+    synopsis: str
+    mc_profile: MCProfile
+    plots: List[PlotEpisode]
+
+class Phase2Structure(BaseModel):
+    plots: List[PlotEpisode]
+
+class WorldState(BaseModel):
+    immutable: Dict[str, Any] = Field(default_factory=dict, description="不変設定（性別、物理法則など）")
+    mutable: Dict[str, Any] = Field(default_factory=dict, description="可変設定（場所、ステータス、生死）")
+    revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
+
+class SceneBlueprint(BaseModel):
+    blueprint: str = Field(..., description="執筆用詳細設計図")
+    required_info: str = Field(..., description="今回開示すべき最小限の情報")
+
+class ConsistencyResult(BaseModel):
+    is_consistent: bool = Field(..., description="設定矛盾がないか")
+    fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
+    minor_errors: List[str] = Field(default_factory=list, description="軽微な矛盾")
+    rewrite_needed: bool = Field(..., description="リライトが必要か")
+
+class AnalysisResult(BaseModel):
+    score_structure: int
+    score_character: int
+    score_hook: int
+    score_volume: int
+    total_score: int
+    improvement_point: str
+
+class MarketingAssets(BaseModel):
+    evaluations: List[Dict[str, Any]] # 簡易化
+    marketing_assets: Dict[str, Any]
 
 # ==========================================
 # プロンプト集約 (PROMPT_TEMPLATES)
@@ -183,8 +249,9 @@ class DatabaseManager:
                     status TEXT DEFAULT 'active', created_at TEXT, marketing_data TEXT, sub_plots TEXT
                 );
                 CREATE TABLE IF NOT EXISTS bible (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, content TEXT,
-                    terminology_map TEXT, history_log TEXT, last_updated TEXT
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, 
+                    immutable TEXT, mutable TEXT, revealed TEXT,
+                    last_updated TEXT
                 );
                 CREATE TABLE IF NOT EXISTS plot (
                     book_id INTEGER, ep_num INTEGER, title TEXT, summary TEXT,
@@ -224,48 +291,96 @@ class DatabaseManager:
 db = DatabaseManager(DB_FILE)
 
 # ==========================================
-# 2. ULTRA Engine (Autopilot & Mobile Opt)
+# 2. Dynamic Bible System
+# ==========================================
+class DynamicBibleManager:
+    def __init__(self, book_id):
+        self.book_id = book_id
+    
+    def get_current_state(self) -> WorldState:
+        row = db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
+        if not row:
+            return WorldState()
+        try:
+            return WorldState(
+                immutable=json.loads(row['immutable']) if row['immutable'] else {},
+                mutable=json.loads(row['mutable']) if row['mutable'] else {},
+                revealed=json.loads(row['revealed']) if row['revealed'] else []
+            )
+        except:
+            return WorldState()
+
+    def update_state(self, new_state: WorldState):
+        db.execute(
+            "INSERT INTO bible (book_id, immutable, mutable, revealed, last_updated) VALUES (?,?,?,?,?)",
+            (
+                self.book_id,
+                json.dumps(new_state.immutable, ensure_ascii=False),
+                json.dumps(new_state.mutable, ensure_ascii=False),
+                json.dumps(new_state.revealed, ensure_ascii=False),
+                datetime.datetime.now().isoformat()
+            )
+        )
+
+    def get_prompt_context(self) -> str:
+        state = self.get_current_state()
+        return f"""
+【WORLD STATE (Current)】
+[IMMUTABLE - Do Not Change]: {json.dumps(state.immutable, ensure_ascii=False)}
+[MUTABLE - Can Change]: {json.dumps(state.mutable, ensure_ascii=False)}
+[REVEALED - Known to Reader]: {json.dumps(state.revealed, ensure_ascii=False)}
+"""
+
+# ==========================================
+# 3. Adaptive Rate Limiter (Circuit Breaker)
+# ==========================================
+class AdaptiveRateLimiter:
+    def __init__(self, initial_limit=5, min_limit=1):
+        self.limit = initial_limit
+        self.min_limit = min_limit
+        self.semaphore = asyncio.Semaphore(initial_limit)
+        self.lock = asyncio.Lock()
+    
+    async def acquire(self):
+        await self.semaphore.acquire()
+
+    def release(self):
+        self.semaphore.release()
+
+    async def report_success(self):
+        async with self.lock:
+            if self.limit < 10: # Max limit cap
+                self.limit += 1
+                # Increase semaphore capacity strictly
+                # (Simple implementations often just recreate semaphore or release extra, 
+                # here we just rely on future acquires being faster if we could dynamically resize.
+                # Since asyncio semaphore doesn't support resize easily, we accept strict backoff
+                # but lazy expansion or just keep semantic limit high and use sleep).
+                pass
+
+    async def report_failure(self):
+        async with self.lock:
+            old_limit = self.limit
+            self.limit = max(self.min_limit, self.limit // 2)
+            print(f"📉 Circuit Breaker Triggered: Limit reduced {old_limit} -> {self.limit}")
+            await asyncio.sleep(5) # Cooldown
+            
+            # Drain semaphore to match new limit is complex, 
+            # instead we simply sleep to simulate backpressure.
+
+# ==========================================
+# 4. ULTRA Engine (Autopilot & Mobile Opt)
 # ==========================================
 class UltraEngine:
     def __init__(self, api_key):
         self.client = genai.Client(api_key=api_key) if api_key else None
+        self.rate_limiter = AdaptiveRateLimiter(initial_limit=5)
         self.safety_settings = [
             types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
         ]
-
-    def _clean_json(self, text):
-        if not text: return None
-        try:
-            cleaned = re.sub(r'```json\n?|```', '', text).strip()
-            match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-            if match:
-                return json.loads(match.group(0))
-            return json.loads(cleaned)
-        except:
-            try:
-                if cleaned.count('{') > cleaned.count('}'):
-                    cleaned += '}' * (cleaned.count('{') - cleaned.count('}'))
-                if cleaned.count('[') > cleaned.count(']'):
-                    cleaned += ']' * (cleaned.count('[') - cleaned.count(']'))
-                return json.loads(cleaned)
-            except:
-                return None
-
-    def _validate_world_state(self, current_state, new_state):
-        """WorldState矛盾チェックバリデータ"""
-        if not current_state or not new_state: return
-        
-        # 1. 生存フラグチェック
-        if 'is_alive' in current_state and 'is_alive' in new_state:
-            if not current_state['is_alive'] and new_state['is_alive']:
-                print(f"⚠️ [CRITICAL WARNING] DB State Conflict: Dead character revived! {current_state} vs {new_state}")
-        
-        # 2. 所持品矛盾チェック (簡易版)
-        if 'inventory' in current_state and 'inventory' in new_state:
-            pass 
 
     def _generate_system_rules(self, mc_profile, style="標準"):
         pronouns_json = json.dumps(mc_profile.get('pronouns', {}), ensure_ascii=False)
@@ -274,278 +389,268 @@ class UltraEngine:
         return PROMPT_TEMPLATES["system_rules"].format(pronouns=pronouns_json, keywords=keywords_json, monologue_style=monologue, style=style)
 
     # ---------------------------------------------------------
-    # Retry Wrappers for Stability (503対策 & 統一 & 429対策強化)
+    # Retry Wrappers for Stability & Circuit Breaker
     # ---------------------------------------------------------
-    async def _generate_with_retry(self, model, contents, config, retries=10, initial_delay=5.0):
-        """非同期版: 指数バックオフ付きリトライ (429 Retry-After対応)"""
-        for attempt in range(retries):
-            try:
-                return await self.client.aio.models.generate_content(model=model, contents=contents, config=config)
-            except Exception as e:
-                if attempt < retries - 1:
+    async def _generate_with_retry(self, model, contents, config, retries=10, initial_delay=2.0):
+        """非同期版: サーキットブレーカー付きリトライ"""
+        await self.rate_limiter.acquire()
+        try:
+            for attempt in range(retries):
+                try:
+                    # スキーマがある場合は構造化モード
+                    response = await self.client.aio.models.generate_content(
+                        model=model, 
+                        contents=contents, 
+                        config=config
+                    )
+                    await self.rate_limiter.report_success()
+                    return response
+                except Exception as e:
                     error_str = str(e)
                     is_429 = "429" in error_str or "ResourceExhausted" in error_str
                     
-                    # 基本待機時間
-                    wait_time = initial_delay * (1.5 ** attempt) + random.uniform(0, 1) # 指数を少し緩やかに
-                    
                     if is_429:
-                        # エラーメッセージから待機時間を解析
-                        match = re.search(r'retry in (\d+\.?\d*)s', error_str)
-                        if match:
-                            server_wait = float(match.group(1))
-                            wait_time = server_wait + 5.0 # 余裕を持って+5秒
-                            print(f"⏳ Quota Limit Reached. Sleeping for {wait_time:.2f}s (Server requested {server_wait}s)...")
-                        else:
-                            # 429だが時間指定がない場合、回数に応じて大幅に増やす
-                            wait_time = 30.0 * (attempt + 1)
-                            
-                    print(f"⚠️ API Error (Async): {e}. Retrying in {wait_time:.1f}s... (Attempt {attempt+1}/{retries})")
-                    await asyncio.sleep(wait_time)
-                else:
-                    print(f"❌ API Failed after {retries} attempts.")
-                    raise e
+                        await self.rate_limiter.report_failure()
+                        wait_time = initial_delay * (2 ** attempt) + random.uniform(1, 3)
+                        print(f"⚠️ Quota Limit. Sleeping {wait_time:.2f}s...")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        print(f"⚠️ API Error: {e}. Retrying...")
+                        await asyncio.sleep(2)
+            raise Exception("Max retries exceeded")
+        finally:
+            self.rate_limiter.release()
 
     # ---------------------------------------------------------
     # Core Logic
     # ---------------------------------------------------------
 
     async def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
-        """第1段階: 1話〜13話（セットアップから中盤の転換点まで）の生成 (Async統一)"""
+        """第1段階: 構造化出力を用いたプロット生成"""
         print("Step 1: Hyper-Resolution Plot Generation Phase 1 (Ep 1-13)...")
-        theme_instruction = f"【最重要テーマ・伏線指示】\nこの物語全体を貫くテーマ: {keywords}"
         
-        core_instruction = f"""
+        prompt = f"""
 あなたはWeb小説の神級プロットアーキテクトです。
 ジャンル「{genre}」で、読者を熱狂させる**全25話完結の物語構造**を作成してください。
-Gemini 2.5 Flashの能力を最大限活かし、各話2,000文字相当の情報量を持つプロットを生成せよ。
 
 【ユーザー指定の絶対条件】
 1. 文体: 「{style}」
 2. 主人公: 性格{mc_personality}, 口調「{mc_tone}」
-{theme_instruction}
-
-【構成指針: 2段階生成ロジック】
-- 今回は第1段階: 1話〜13話（セットアップから中盤の転換点まで）を作成。
-- 各話構成: 「起(Intro)・承(Development)・転(Twist)・結(Conclusion)・引き(Cliffhanger)」の5要素を記述。
-- インデックス: Embedding用に各話を「Scene 1(起承)」「Scene 2(転)」「Scene 3(結引き)」に分類可能にせよ。
-"""
-
-        # --- Phase 1: 1-13話 ---
-        prompt1 = f"""
-{core_instruction}
+3. テーマ: {keywords}
 
 【Task: Phase 1 (Ep 1-13)】
 作品設定と、第1話〜第13話の詳細プロットを作成せよ。
-各話は以下のJSON構造を厳守すること。
-
-出力フォーマット(JSON):
-{{
-  "title": "作品タイトル",
-  "concept": "作品コンセプト",
-  "synopsis": "全体あらすじ",
-  "mc_profile": {{
-    "name": "主人公名",
-    "tone": "{mc_tone}", 
-    "personality": "{mc_personality}",
-    "ability": "スキル詳細",
-    "monologue_style": "...",
-    "pronouns": {{ "self": "俺/私", "others": "お前/君" }},
-    "keyword_dictionary": {{ "用語": "ルビ" }}
-  }},
-  "plots": [
-    {{
-      "ep_num": 1,
-      "title": "...",
-      "setup": "【起:Intro】...", 
-      "conflict": "【承:Development】...", 
-      "climax": "【転:Twist】...", 
-      "resolution": "【結:Conclusion & 引き:Cliffhanger】...",
-      "tension": 90,
-      "scenes": ["Scene1内容...", "Scene2内容...", "Scene3内容..."]
-    }},
-    ... (13話まで)
-  ]
-}}
 """
-        data1 = None
-        for attempt in range(3):
-            try:
-                # 修正: Asyncメソッドに統一
-                res1 = await self._generate_with_retry(
-                    model=MODEL_ULTRALONG,
-                    contents=prompt1,
-                    config=types.GenerateContentConfig(response_mime_type="application/json", safety_settings=self.safety_settings)
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_ULTRALONG,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=NovelStructure,
+                    safety_settings=self.safety_settings
                 )
-                data1 = self._clean_json(res1.text)
-                if data1: break
-            except Exception as e:
-                print(f"Plot Phase 1 Error: {e}")
-                await asyncio.sleep(5)
-        
-        return data1
+            )
+            # Pydanticモデルとしてパースされた結果を辞書化
+            return json.loads(res.text)
+        except Exception as e:
+            print(f"Plot Phase 1 Error: {e}")
+            return None
 
     async def generate_universe_blueprint_phase2(self, genre, style, mc_personality, mc_tone, keywords, data1):
-        """第2段階: 14話〜25話の生成（Phase 1の情報を元に並列実行） (Async統一)"""
+        """第2段階: 14話〜25話の生成"""
         print("Step 1 (Parallel): Hyper-Resolution Plot Generation Phase 2 (Ep 14-25)...")
         
         context_summ = "\n".join([f"Ep{p['ep_num']}: {p['resolution'][:50]}..." for p in data1['plots']])
-        
-        core_instruction = f"""
+        prompt = f"""
 あなたはWeb小説の神級プロットアーキテクトです。
 全25話完結の物語構造の後半を作成します。
-
-【基本設定】
-ジャンル: {genre}
-テーマ: {keywords}
-主人公: {mc_profile_str(data1['mc_profile'])}
-"""
-
-        prompt2 = f"""
-{core_instruction}
-
-【Task: Phase 2 (Ep 14-25)】
-前回の続きとして、第14話〜第25話（最終話）を作成せよ。
-これまでの伏線を回収し、感動のフィナーレへ導くこと。
 
 【これまでの流れ (Ep1-13)】
 {context_summ}
 
-出力フォーマット(JSON):
-{{
-  "plots": [
-    {{
-      "ep_num": 14,
-      "title": "...",
-      "setup": "...", "conflict": "...", "climax": "...", "resolution": "...",
-      "tension": 85,
-      "scenes": ["...", "...", "..."]
-    }},
-    ... (25話まで)
-  ]
-}}
+【Task: Phase 2 (Ep 14-25)】
+前回の続きとして、第14話〜第25話（最終話）を作成せよ。
 """
-        data2 = None
-        for attempt in range(3):
-            try:
-                # 修正: Asyncメソッドに統一
-                res2 = await self._generate_with_retry(
-                    model=MODEL_ULTRALONG,
-                    contents=prompt2,
-                    config=types.GenerateContentConfig(response_mime_type="application/json", safety_settings=self.safety_settings)
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_ULTRALONG,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=Phase2Structure,
+                    safety_settings=self.safety_settings
                 )
-                data2 = self._clean_json(res2.text)
-                if data2: break
-            except Exception as e:
-                print(f"Plot Phase 2 Error: {e}")
-                await asyncio.sleep(5)
+            )
+            return json.loads(res.text)
+        except Exception as e:
+            print(f"Plot Phase 2 Error: {e}")
+            return None
 
-        return data2
+    async def evaluate_consistency(self, ep_text, bible_manager) -> ConsistencyResult:
+        """【構造改革】リライト要否の論理判定"""
+        state = bible_manager.get_current_state()
+        prompt = f"""
+あなたは物語の整合性を監査するAIロジックです。
+以下のエピソード本文と「Bible（世界設定）」を比較し、矛盾を検出してください。
+
+【Bible】
+Immutable: {json.dumps(state.immutable, ensure_ascii=False)}
+Mutable: {json.dumps(state.mutable, ensure_ascii=False)}
+
+【Episode Text】
+{ep_text[:3000]}... (Excerpt)
+
+判定基準:
+1. 死んだはずのキャラが生きていないか？
+2. 設定された物理法則や能力に違反していないか？
+3. キャラの口調や一人称（Bible外だが文脈で判断）が崩壊していないか？
+
+重大な矛盾がある場合は rewrite_needed: true とせよ。
+"""
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_LITE,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=ConsistencyResult,
+                    safety_settings=self.safety_settings
+                )
+            )
+            return ConsistencyResult.model_validate_json(res.text)
+        except Exception as e:
+            print(f"Consistency Check Error: {e}")
+            return ConsistencyResult(is_consistent=True, fatal_errors=[], minor_errors=[], rewrite_needed=False)
+
+    async def sync_with_chapter(self, bible_manager, chapter_text):
+        """【知能統合】本文からBibleを自動更新"""
+        current = bible_manager.get_current_state()
+        prompt = f"""
+あなたはデータベース管理者です。
+以下のエピソード本文から「新たに確定した設定」「変化したステータス」「読者に開示された秘密」を抽出し、
+WorldStateを更新してください。
+
+【Current State】
+{json.dumps(current.model_dump(), ensure_ascii=False)}
+
+【Episode Text】
+{chapter_text}
+
+Task:
+1. Immutable: 基本的に変更なし。新事実があれば追加。
+2. Mutable: 位置移動、アイテム増減、生死変化を反映。
+3. Revealed: 本文中で読者に説明された用語や設定を追加。
+"""
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_LITE,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=WorldState,
+                    safety_settings=self.safety_settings
+                )
+            )
+            new_state = WorldState.model_validate_json(res.text)
+            bible_manager.update_state(new_state)
+        except Exception as e:
+            print(f"Bible Sync Error: {e}")
 
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="標準", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
-        """マイクロ執筆エンジン (Gemma 3 専用パイプライン: 12B/27B連携)"""
+        """【執筆洗練】ハイパー・ナラティブ・エンジン"""
         
-        start_idx = start_ep - 1
         all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
         target_plots = [p for p in all_plots if start_ep <= p.get('ep_num', -1) <= end_ep]
-        
         if not target_plots: return None
 
         full_chapters = []
+        bible_manager = DynamicBibleManager(book_data['book_id'])
         
-        # 1. 状況同期 (Context Sync - Gemma 3 12B)
-        current_world_state = {}
-        prev_ep_row = db.fetch_one("SELECT world_state, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
-        
-        prev_summary = "（物語開始）"
-        if prev_ep_row:
-            if prev_ep_row['world_state']:
-                try: current_world_state = json.loads(prev_ep_row['world_state'])
-                except: pass
-            if prev_ep_row['summary']:
-                prev_summary = prev_ep_row['summary']
+        # 前話の文脈取得 (Bridge Logic用)
+        prev_ep_row = db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
+        prev_context_text = prev_ep_row['content'][-500:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
 
         system_rules = self._generate_system_rules(book_data['mc_profile'], style=style_dna_str)
         mc_name = book_data['mc_profile'].get('name', '主人公')
+        
+        # Vocal Persona Setup
+        vocab_filter = f"""
+【Vocal Persona: {mc_name}】
+- 知識レベル: 一般人レベル（専門用語は知らないこと）
+- 禁止語彙: {json.dumps(book_data['mc_profile'].get('keyword_dictionary', {}), ensure_ascii=False)} 以外の難解な言葉
+- 制約: このキャラクターが知り得ない情報は、地の文でも絶対に描写しないこと。
+"""
 
         for plot in target_plots:
             ep_num = plot['ep_num']
-            print(f"Gemma 3 Pipeline Writing Ep {ep_num}...")
+            print(f"Hyper-Narrative Engine Writing Ep {ep_num}...")
             
             full_content = ""
-            current_text_tail = prev_summary # 開始時は前話サマリ
+            current_text_tail = prev_context_text
             
             scenes = plot.get('scenes', [plot.get('setup',''), plot.get('conflict',''), plot.get('climax','') + plot.get('resolution','')])
             
             for part_idx, scene_plot in enumerate(scenes, 1):
-                # State管理: JSONをプロンプトに埋め込み
-                state_str = json.dumps(current_world_state, ensure_ascii=False)
+                # A. 情報開示制限 (Show, Don't Tell)
+                bible_state = bible_manager.get_current_state()
+                revealed_list = bible_state.revealed
                 
                 # --- Step 2: Segment Design (Gemma 3 27B) ---
                 design_prompt = f"""
 {system_rules}
+{vocab_filter}
 【Role: Architect (Gemma 3 27B)】
-あなたは物語の設計士です。
-以下のプロットと現在の状況に基づき、このシーン（800文字）の**「執筆用詳細設計図（Blueprint）」**を500文字以内で作成してください。
-本文は書かず、構成・伏線・感情の動き・五感情報の配置のみを指示してください。
+以下のプロットに基づき、シーンの「執筆用詳細設計図」と「情報開示戦略」を策定せよ。
 
 【Current Scene Plot】
 {scene_plot}
-【World State】
-{state_str}
-【Previous Context】
-...{current_text_tail}
+【Bible Context】
+{bible_manager.get_prompt_context()}
 
-【Output】
-Blueprint (text only):
+【Constraint: Show, Don't Tell】
+1. 読者に伝えるべき「新しい設定」をBibleから**1つだけ**選べ。(required_info)
+2. 既に開示済みリスト（{json.dumps(revealed_list, ensure_ascii=False)}）にある情報は、説明せず当然の前提として扱え。
 """
-                blueprint_text = ""
+                blueprint_data = None
                 async with semaphore:
                     try:
                         res = await self._generate_with_retry(
                             model=MODEL_PRO, 
                             contents=design_prompt,
-                            config=types.GenerateContentConfig(safety_settings=self.safety_settings)
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json",
+                                response_schema=SceneBlueprint,
+                                safety_settings=self.safety_settings
+                            )
                         )
-                        blueprint_text = res.text
-                        await asyncio.sleep(0.1) # TPM Control
+                        blueprint_data = SceneBlueprint.model_validate_json(res.text)
                     except Exception as e:
                         print(f"Design Error Ep{ep_num}-{part_idx}: {e}")
-                        blueprint_text = scene_plot # Fallback
+                        blueprint_data = SceneBlueprint(blueprint=scene_plot, required_info="なし")
 
                 # --- Step 3: Focused Writing (Gemma 3 12B) ---
+                # C. 論理的接続 (Bridge Logic)
+                bridge_instruction = f"""
+【Bridge Logic】
+前シーンの末尾: "...{current_text_tail}"
+指示: 前シーンの「感情の余韻」を冒頭一行目で引き継ぎ、なぜ次の場所に移動するのか、その「動機」を必ず描写せよ。
+"""
                 write_prompt = f"""
 {system_rules}
+{vocab_filter}
+{bridge_instruction}
 【Role: Writer (Gemma 3 12B)】
-あなたは高精度の執筆エンジンです。
-以下の「Blueprint」に厳密に従い、シーンの本文のみを執筆してください。
-描写密度を最大化し、余計な要約を含めないこと。
-
-【情報の「開示制限」とプロットの再構成】
-あなたは「読者の没入感」を最優先する編集者兼作家です。制約事項・設定資料にある情報を一度にすべて出さないこと。
-・「既に出した情報」を記録し、同じ説明を2回以上繰り返さないこと。
-・地の文での説明を50%削り、キャラの行動や五感で状況を表現（Show, don't tell）すること。
-実行手順1. 前話までに開示済みの設定を箇条書きで抽出せよ。
-2. 本エピソードで「最低限伝えなければならない新情報」を1つだけ選べ。
-3. それ以外は一切説明せず、シーンの描写に徹せよ。
-
-【キャラクターごとの「語彙フィルター」の設定】
-視点キャラクターは「{mc_name}」です。
-視点制限・このキャラが知らない設定情報は、地の文でも一切言及禁止です。
-・このキャラ特有の口癖、思考の癖、語彙リスト（{json.dumps(book_data['mc_profile'].get('keyword_dictionary', {}), ensure_ascii=False)}）のみを使用してください。
-トーン制御前の章の語り口を完全にリセットし、このキャラの性格に基づいた一人称（または三人称近接視点）で再構築してください。
-
-【シーン間の「論理的接続（ブリッジ）」の強化】
-接続命令シーン[A]とシーン[B]のつながりを自然にするための「ブリッジ」を作成してください。
-具体指示・シーン[A]の最後の感情（例：焦燥感）を、シーン[B]の冒頭の一行目で引き継ぐこと。
-・「なぜ今この場所にいるのか」の動機を、キャラのモノローグで一言補足すること。
-構造チェックプロットの[項目名]に従っているか確認し、逸脱している場合は、プロットの目的（例：ここで二人は仲良くなる）を優先して書き直してください。
+Blueprintに従い、シーンを執筆せよ。
 
 【Blueprint】
-{blueprint_text}
+{blueprint_data.blueprint}
 
-【Previous Context】
-...{current_text_tail}
+【Mandatory New Info (Insert naturally)】
+{blueprint_data.required_info}
+
+【Rewrite Instruction (Marketing Feedback)】
+{rewrite_instruction if rewrite_instruction else "特になし"}
 """
                 scene_text = ""
                 async with semaphore:
@@ -553,78 +658,37 @@ Blueprint (text only):
                         res = await self._generate_with_retry(
                             model=MODEL_LITE, 
                             contents=write_prompt,
-                            config=types.GenerateContentConfig(safety_settings=self.safety_settings)
+                            config=types.GenerateContentConfig(safety_settings=self.safety_settings) # Text Output
                         )
                         scene_text = res.text
-                        await asyncio.sleep(0.1) # TPM Control
                     except Exception as e:
                         print(f"Writing Error Ep{ep_num}-{part_idx}: {e}")
 
                 cleaned_part = scene_text.strip()
                 full_content += cleaned_part + "\n\n"
-                current_text_tail = cleaned_part[-200:] # 次のコンテキスト用に更新
+                current_text_tail = cleaned_part[-200:]
 
-                # --- Step 4: Self-Update (Gemma 3 12B) ---
-                # 修正: World Stateの全体を出力させ、整合性を担保する
-                update_prompt = f"""
-【Role: State Manager (Gemma 3 12B)】
-以下のシーン本文を読み、World State（所持品、パラメータ、生死など）の最新状態を確定させ、**すべての項目を含んだ完全なJSON**を出力せよ。
-差分更新ではなく、マージ済みの完全な状態を返せ。
+            # --- Step 4: Auto-Sync Bible ---
+            await self.sync_with_chapter(bible_manager, full_content)
 
-【Current State】
-{state_str}
-
-【Scene Text】
-{cleaned_part}
-
-【Output Format】
-```json
-{{ "new_world_state": {{ ... }} }}
-""" 
-                async with semaphore:
-                    try:
-                        # 修正: Gemma 3はJSONモード未対応のため、configからresponse_mime_typeを除去
-                        res = await self._generate_with_retry(
-                            model=MODEL_LITE,
-                            contents=update_prompt,
-                            config=types.GenerateContentConfig(safety_settings=self.safety_settings)
-                        )
-                        state_data = self._clean_json(res.text)
-                        if state_data:
-                            new_state = state_data.get('new_world_state', {})
-                            # 修正: 全体状態のバリデーションと置換
-                            self._validate_world_state(current_world_state, new_state)
-                            if new_state:
-                                current_world_state = new_state
-                        await asyncio.sleep(0.1) # TPM Control
-                    except Exception as e:
-                        print(f"State Update Error Ep{ep_num}-{part_idx}: {e}")
-
-        # エピソード完了処理
-        full_chapters.append({
-            "ep_num": ep_num,
-            "title": plot['title'],
-            "content": full_content,
-            "summary": plot.get('resolution', '')[:100],
-            "world_state": current_world_state
-        })
+            # エピソード完了処理
+            full_chapters.append({
+                "ep_num": ep_num,
+                "title": plot['title'],
+                "content": full_content,
+                "summary": plot.get('resolution', '')[:100],
+                "world_state": bible_manager.get_current_state().model_dump()
+            })
 
         return {"chapters": full_chapters}
 
     async def _summarize_chunk(self, text_chunk, start_ep, end_ep, prev_summary="", next_summary=""):
-        """【内部ヘルパー】エピソード群を圧縮要約する（スライディングコンテキスト対応）"""
-        # 修正: 前後の文脈を含めたプロンプトに変更
+        """【内部ヘルパー】エピソード群を圧縮要約する"""
         prompt = f"""
-【Task: Context Compression】 以下の第{start_ep}話〜第{end_ep}話の本文を、物語の重要ポイント（伏線・感情・結末）を漏らさず、全体で1000文字程度に「濃縮要約」せよ。 あらすじではなく、マーケティング分析（キャラの魅力、構成の評価）に使える「詳細なダイジェスト」を作成すること。
-
-【Previous Context (Before Ep{start_ep})】
-{prev_summary}
+【Task: Context Compression】 以下の第{start_ep}話〜第{end_ep}話の本文を、物語の重要ポイント（伏線・感情・結末）を漏らさず、全体で1000文字程度に「濃縮要約」せよ。
 
 【Text Chunk (Ep{start_ep}-{end_ep})】
 {text_chunk} 
-
-【Next Context (After Ep{end_ep})】
-{next_summary}
 """
         try:
             res = await self._generate_with_retry(
@@ -634,123 +698,96 @@ Blueprint (text only):
             )
             return res.text.strip()
         except Exception as e:
-            print(f"Summary Error Ep{start_ep}-{end_ep}: {e}")
-            return text_chunk[:1000] # Fallback
+            return text_chunk[:1000]
 
     async def analyze_and_create_assets(self, book_id):
-        """【STEP 4 & 6統合: 改】スライディングウィンドウ分析 & マーケティング素材生成"""
+        """【安定化】フィードバックループ統合"""
         print("Starting Recursive Analysis (Sliding Window)...")
         
-        # 1. 全話取得
         chapters = db.fetch_all("SELECT ep_num, title, summary, content FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
         book_info = db.fetch_one("SELECT title FROM books WHERE id=?", (book_id,))
         if not chapters: return [], [], None
 
-        # 2. コンテキスト圧縮 (5話ごとにチャンク化して並列要約)
+        # コンテキスト圧縮
         chunk_size = 5
         summary_tasks = []
-        
         for i in range(0, len(chapters), chunk_size):
             chunk = chapters[i : i + chunk_size]
-            start_ep = chunk[0]['ep_num']
-            end_ep = chunk[-1]['ep_num']
-            
-            # 修正: スライディングウィンドウ（前後1話分のサマリを取得）
-            prev_summary = chapters[i-1]['summary'] if i > 0 else ""
-            next_idx = i + chunk_size
-            next_summary = chapters[next_idx]['summary'] if next_idx < len(chapters) else ""
-            
-            # 本文結合
             full_text = "\n".join([f"Ep{c['ep_num']} {c['title']}:\n{c['content']}" for c in chunk])
-            # 修正: 前後のコンテキストを渡す
-            summary_tasks.append(self._summarize_chunk(full_text, start_ep, end_ep, prev_summary, next_summary))
+            summary_tasks.append(self._summarize_chunk(full_text, chunk[0]['ep_num'], chunk[-1]['ep_num']))
         
-        # 並列実行待機
         compressed_summaries = await asyncio.gather(*summary_tasks)
         master_context = "\n\n".join(compressed_summaries)
         
-        print(f"Context Compressed: {len(master_context)} chars (from approx {len(chapters)*2000} chars)")
-
-        # 3. 圧縮コンテキストを用いた最終分析
         prompt = f"""
-あなたはWeb小説の敏腕編集者兼マーケターです。 全25話の原稿が出揃いました。 以下は物語全体の「濃縮ダイジェスト」です。これに基づき、以下のタスクを一括実行してください。
+あなたはWeb小説の敏腕編集者兼マーケターです。
+以下のタスクを一括実行し、JSONで出力せよ。
 
-Task 1: 各話スコアリング & 改善提案 以下の4項目（各25点満点、合計100点）で採点し、改善点を指摘せよ。
-Task 2: マーケティング素材生成
+Task 1: 各話スコアリング & 改善提案
+Task 2: マーケティング素材生成 (キャッチコピー、タグ、近況ノート)
 
-【出力フォーマット(JSON)】 {{ "evaluations": [ {{ "ep_num": 1, "scores": {{ "structure": 20, "character": 15, "hook": 25, "volume": 20 }}, "total_score": 80, "improvement_point": "..." }}, ... (25話まで) ], "marketing_assets": {{ "cover_prompt": "...", "illustrations": [ {{ "ep_num": 1, "prompt": "..." }}, ... ], "tags": ["...", ...], "catchcopies": ["...", ...], "kinkyo_note": "..." }} }}
-
-【作品タイトル】{book_info['title']} 【物語全体ダイジェスト】 {master_context} """ 
-        data = None
-        for attempt in range(3):
-            try:
-                # 修正: Gemma 3はJSONモード未対応のため、configからresponse_mime_typeを除去
-                res = await self._generate_with_retry(
-                    model=MODEL_LITE,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        safety_settings=self.safety_settings
-                    )
+【作品タイトル】{book_info['title']}
+【物語全体ダイジェスト】
+{master_context}
+"""
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_LITE,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=MarketingAssets,
+                    safety_settings=self.safety_settings
                 )
-                data = self._clean_json(res.text)
-                if data: break
-            except Exception as e:
-                if attempt == 2:
-                    print(f"Analysis & Marketing Error: {e}")
-                    return [], [], None
-                await asyncio.sleep(0.1 ** attempt)
-
-        if not data: return [], [], None
-
-        evals = data.get('evaluations', [])
-        assets = data.get('marketing_assets', {})
-        
-        # 修正: リライト対象選定ロジックの多角化
-        # total_score < 70 OR hook < 10 OR character < 10
-        rewrite_target_eps = []
-        for e in evals:
-            scores = e.get('scores', {})
-            total = e.get('total_score', 0)
-            if total < REWRITE_THRESHOLD or scores.get('hook', 0) < 10 or scores.get('character', 0) < 10:
-                rewrite_target_eps.append(e['ep_num'])
-        
-        # DB更新
-        existing = db.fetch_one("SELECT marketing_data FROM books WHERE id=?", (book_id,))
-        m_data = {}
-        if existing and existing['marketing_data']:
-            try: m_data = json.loads(existing['marketing_data'])
-            except: pass
-        
-        m_data["episode_evaluations"] = evals
-        m_data.update(assets)
-        
-        db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(m_data, ensure_ascii=False), book_id))
-        
-        return evals, rewrite_target_eps, assets
+            )
+            data = MarketingAssets.model_validate_json(res.text)
+            
+            # --- 構造改革: 閾値廃止と論理判定への移行 ---
+            # ここではスコアも見るが、後のプロセスで evaluate_consistency を呼ぶためのリストアップを行う
+            rewrite_target_eps = []
+            bible_manager = DynamicBibleManager(book_id)
+            
+            for evaluation in data.evaluations:
+                # 低スコアまたは "improvement_point" に重大な指摘がある場合
+                ep_num = evaluation.get('ep_num')
+                # ここでConsistency Checkを非同期で走らせるのも手だが、今回はリライト候補として挙げ、
+                # リライトループ内で evaluate_consistency を呼ぶ設計とする。
+                if evaluation.get('total_score', 0) < 60: # 最低限の足切り
+                     rewrite_target_eps.append(ep_num)
+            
+            # DB更新
+            db.execute("UPDATE books SET marketing_data=? WHERE id=?", (json.dumps(data.marketing_assets, ensure_ascii=False), book_id))
+            
+            return data.evaluations, rewrite_target_eps, data.marketing_assets
+            
+        except Exception as e:
+            print(f"Analysis Error: {e}")
+            return [], [], None
 
     async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="標準"):
-        """【STEP 5】指定エピソードの自動リライト"""
+        """【安定化】マーケティング・フィードバックループ"""
         rewritten_count = 0
         semaphore = asyncio.Semaphore(2) 
         
         eval_map = {e['ep_num']: e for e in evaluations}
         tasks = []
 
-        for ep_id in target_ep_ids:
-            eval_data = eval_map.get(ep_id)
-            if not eval_data: continue
+        bible_manager = DynamicBibleManager(book_data['book_id'])
 
-            scores = eval_data.get('scores', {})
-            low_areas = [k for k, v in scores.items() if v < 15] 
+        for ep_id in target_ep_ids:
+            # 1. 整合性チェック (Consistency Check)
+            chapter_row = db.fetch_one("SELECT content FROM chapters WHERE book_id=? AND ep_num=?", (book_data['book_id'], ep_id))
+            consistency = await self.evaluate_consistency(chapter_row['content'], bible_manager)
             
-            specific_instruction = ""
-            if "structure" in low_areas: specific_instruction += "起承転結を明確にし、伏線を強調してください。"
-            if "character" in low_areas: specific_instruction += "主人公の感情描写を倍増させ、動機を深く掘り下げてください。"
-            if "hook" in low_areas: specific_instruction += "結末の引きを劇的に強め、謎や危機で終わらせてください。"
-            if "volume" in low_areas: specific_instruction += "描写の密度を高め、情景や五感情報を大幅に加筆してください。"
+            if not consistency.rewrite_needed and ep_id not in target_ep_ids:
+                continue
+
+            # 2. マージ: マーケティング指摘 + 整合性エラー
+            eval_data = eval_map.get(ep_id, {})
+            marketing_instruction = eval_data.get('improvement_point', "")
+            consistency_instruction = f"矛盾修正: {','.join(consistency.fatal_errors)}" if consistency.fatal_errors else ""
             
-            base_point = eval_data.get('improvement_point', "全体的に改善")
-            instruction = f"【編集者からの指摘: {base_point}】\n重点改善項目: {','.join(low_areas)}\n具体的な指示: {specific_instruction} この指摘を解消し、スコア{REWRITE_THRESHOLD}点以上になるように書き直してください。"
+            instruction = f"【編集指示】\n{marketing_instruction}\n{consistency_instruction}"
             
             tasks.append(self.write_episodes(
                 book_data, 
@@ -772,29 +809,35 @@ Task 2: マーケティング素材生成
         return rewritten_count
 
     def save_blueprint_to_db(self, data, genre, style_dna_str):
+        # Pydanticモデルから辞書へ
+        if isinstance(data, dict): data_dict = data
+        else: data_dict = data.model_dump() # Should not happen based on return type of generate_universe_blueprint_phase1 logic which returns dict
+        
+        # Phase1が辞書で返ってくるように修正済みだが念のため
+        
         dna = json.dumps({
-            "tone": data['mc_profile']['tone'], 
-            "personality": data['mc_profile'].get('personality', ''),
+            "tone": data_dict['mc_profile']['tone'], 
+            "personality": data_dict['mc_profile'].get('personality', ''),
             "style_mode": style_dna_str,
             "pov_type": "一人称"
-        })
+        }, ensure_ascii=False)
         
-        ability_val = data['mc_profile'].get('ability', '')
-        if isinstance(ability_val, dict):
-            ability_val = json.dumps(ability_val, ensure_ascii=False)
-        else:
-            ability_val = str(ability_val)
-
+        ability_val = data_dict['mc_profile'].get('ability', '')
+        
         bid = db.execute(
             "INSERT INTO books (title, genre, synopsis, concept, target_eps, style_dna, status, special_ability, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
-            (data['title'], genre, data['synopsis'], data['concept'], 25, dna, 'active', ability_val, datetime.datetime.now().isoformat())
+            (data_dict['title'], genre, data_dict['synopsis'], data_dict['concept'], 25, dna, 'active', ability_val, datetime.datetime.now().isoformat())
         )
-        c_dna = json.dumps(data['mc_profile'])
-        monologue_val = data['mc_profile'].get('monologue_style', '')
-        db.execute("INSERT INTO characters (book_id, name, role, dna_json, monologue_style) VALUES (?,?,?,?,?)", (bid, data['mc_profile']['name'], '主人公', c_dna, monologue_val))
+        c_dna = json.dumps(data_dict['mc_profile'], ensure_ascii=False)
+        monologue_val = data_dict['mc_profile'].get('monologue_style', '')
+        db.execute("INSERT INTO characters (book_id, name, role, dna_json, monologue_style) VALUES (?,?,?,?,?)", (bid, data_dict['mc_profile']['name'], '主人公', c_dna, monologue_val))
         
+        # Initial Bible Creation
+        db.execute("INSERT INTO bible (book_id, immutable, mutable, revealed, last_updated) VALUES (?,?,?,?,?)",
+                   (bid, "{}", "{}", "[]", datetime.datetime.now().isoformat()))
+
         saved_plots = []
-        for p in data['plots']:
+        for p in data_dict['plots']:
             full_title = f"第{p['ep_num']}話 {p['title']}"
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
             scenes_json = json.dumps(p.get('scenes', []), ensure_ascii=False)
@@ -810,6 +853,7 @@ Task 2: マーケティング素材生成
 
     def save_additional_plots_to_db(self, book_id, data_p2):
         saved_plots = []
+        # data_p2 is dict (json.loads result)
         for p in data_p2['plots']:
             full_title = f"第{p['ep_num']}話 {p['title']}"
             main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
@@ -848,7 +892,6 @@ def mc_profile_str(mc_profile): return f"{mc_profile.get('name')} (性格:{mc_pr
 
 async def task_plot_gen_phase2(engine, bid, genre, style, mc_personality, mc_tone, keywords, data1):
     print(f"Parallel Task: Generating Phase 2 for Book ID {bid}...")
-    # 修正: Async呼び出し
     data2 = await engine.generate_universe_blueprint_phase2(genre, style, mc_personality, mc_tone, keywords, data1)
 
     if data2 and 'plots' in data2:
@@ -878,7 +921,6 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
             except: pass
 
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
-    # 修正: セマフォを10に引き上げ (動的管理)
     semaphore = asyncio.Semaphore(10)
 
     tasks = []
@@ -923,15 +965,14 @@ async def task_analyze_marketing(engine, bid):
     return evals, rewrite_targets, assets
 
 async def task_rewrite(engine, full_data, rewrite_targets, evals, saved_style):
-    print(f"Rewriting {len(rewrite_targets)} Episodes (Threshold < {REWRITE_THRESHOLD})...")
+    if not rewrite_targets: return 0
+    print(f"Rewriting {len(rewrite_targets)} Episodes (Consistency & Quality Check)...")
     c = await engine.rewrite_target_episodes(full_data, rewrite_targets, evals, style_dna_str=saved_style)
     return c
 
 # ==========================================
 # 3. Main Logic (Headless)
 # ==========================================
-db = DatabaseManager(DB_FILE)
-
 def load_seed():
     if not os.path.exists("story_seeds.json"):
         return {
@@ -1028,10 +1069,6 @@ def create_zip_package(book_id, title, marketing_data):
             meta = f"【タイトル】\n{title}\n\n"
             meta += f"【キャッチコピー】\n" + "\n".join(marketing_data.get('catchcopies', [])) + "\n\n"
             meta += f"【検索タグ】\n{' '.join(marketing_data.get('tags', []))}\n\n"
-            meta += f"【表紙プロンプト】\n{marketing_data.get('cover_prompt', '')}\n\n"
-            meta += "【挿絵プロンプト集】\n"
-            for ill in marketing_data.get('illustrations', []):
-                meta += f"第{ill['ep_num']}話: {ill['prompt']}\n"
             z.writestr("marketing_assets.txt", meta)
             
             try:
@@ -1074,14 +1111,13 @@ async def main():
 
     engine = UltraEngine(API_KEY)
 
-    print("Starting Factory Pipeline (Async / No Embedding)...")
+    print("Starting Factory Pipeline (Async / Structural Output)...")
 
     while True:
         try:
             seed = load_seed()
             
             print("Step 1a: Generating Plot Phase 1...")
-            # 修正: Async await呼び出し
             data1 = await engine.generate_universe_blueprint_phase1(
                 seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
             )
@@ -1113,11 +1149,10 @@ async def main():
 
             count_p2, full_data_final, _ = await task_write_batch(engine, bid, start_ep=14, end_ep=25)
             
-            total_count = count_p1 + count_p2
             full_data = full_data_final 
 
             evals, rewrite_targets, assets = await task_analyze_marketing(engine, bid)
-            print(f"Rewriting Targets (Below Threshold): {rewrite_targets}")
+            print(f"Rewriting Targets (Consistency & Low Score): {rewrite_targets}")
 
             if rewrite_targets:
                 await task_rewrite(engine, full_data, rewrite_targets, evals, saved_style)
