@@ -31,7 +31,6 @@ TARGET_EMAIL = os.environ.get("GMAIL_USER")
 MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
-MODEL_MICRO = "gemma-3-4b-it" # 廃止予定だが変数として残す
 MODEL_MARKETING = "gemini-2.5-flash-lite"
 
 DB_FILE = "factory_run.db"
@@ -100,10 +99,6 @@ STYLE_DEFINITIONS = {
         "name": "俺ガイル風（渡航）",
         "instruction": "【文体模倣: 屈折・哲学的】\n1. 主人公の独白は、社会や青春に対する皮肉（ひねくれ）から入り、独自の理屈を展開せよ。\n2. 会話文は、言葉の裏にある「本音」や「空気」を探り合うような、緊張感のあるものにせよ。\n3. 比喩表現を多用し、抽象的な概念（「本物」「共依存」）について議論させろ。\n4. ラストは明確な答えを出さず、苦味を含んだ余韻を残せ。"
     },
-    "style_trpg_hardboiled": {
-        "name": "ゴブスレ風（蝸牛くも）",
-        "instruction": "【文体模倣: ハードボイルド・即物的】\n1. 形容詞を削ぎ落とし、「彼は剣を振った。ゴブリンが死んだ。」のように事実を短文で積み重ねろ。\n2. 感情描写よりも、装備の点検や戦術の確認といった「プロフェッショナルな動作」を詳細に描け。\n3. 「運命（ダイス）」「神々」といったTRPG的な概念を、俯瞰的な視点として挿入せよ。\n4. グロテスクな描写も、日常の一部として淡々と記述せよ。"
-    },
     "style_chat_log": {
         "name": "掲示板・配信回風（一般的Web様式）",
         "instruction": "【文体模倣: 掲示板・レス】\n1. 文章ではなく、「名前：名無しさん」「>>1 おつ」のような掲示板形式で進行せよ。\n2. ネットスラング（草、ｗ、～杉、神）を多用し、独特のノリとスピード感を出せ。\n3. 主人公の行動に対する「視聴者の掌返し（批判→絶賛）」をリアルタイムで描け。\n4. 考察班、アンチ、信者など、複数の役割を持ったレスを混在させろ。"
@@ -126,8 +121,11 @@ STYLE_DEFINITIONS = {
 # Pydantic Schemas (構造化出力用)
 # ==========================================
 
-# 廃止③ レガシー構造の除去 (NovelStructure/MarketingAssets)
-# 統合④ プロットモデルの単一化 (PlotScene廃止, PlotEpisode修正)
+class SceneDetail(BaseModel):
+    location: str = Field(..., description="シーンの場所")
+    action: str = Field(..., description="シーン内で起きる具体的な出来事")
+    dialogue_point: str = Field(..., description="主要な会話の内容")
+    role: str = Field(..., description="シーンの役割（伏線/アクション/感情）")
 
 class PlotEpisode(BaseModel):
     ep_num: int
@@ -139,9 +137,8 @@ class PlotEpisode(BaseModel):
     tension: int
     stress: int = Field(default=0, description="読者のストレス度(0-100)。理不尽な展開やヘイト溜め。")
     catharsis: int = Field(default=0, description="カタルシス度(0-100)。ざまぁ、逆転、無双。")
-    scenes: List[Dict[str, str]] = Field(..., description="各シーンの定義。キーは 'location', 'action', 'dialogue_point' を含むこと。")
+    scenes: List[SceneDetail] = Field(..., description="各シーンの定義。")
 
-# 改善⑨ 動的関係性マップの導入
 class CharacterRegistry(BaseModel):
     name: str
     tone: str
@@ -178,7 +175,6 @@ class CharacterRegistry(BaseModel):
         prompt += f"  - Relations: {json.dumps(r_json, ensure_ascii=False)}\n"
         return prompt
 
-# 統合⑥ 総合検閲エンジンの構築 (EvaluationResult -> QualityReport)
 class QualityReport(BaseModel):
     is_consistent: bool = Field(..., description="設定矛盾がないか")
     fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
@@ -188,11 +184,11 @@ class QualityReport(BaseModel):
     stress_level: int = Field(..., description="読者が感じるストレスレベル(0-100)")
     catharsis_level: int = Field(..., description="読者が感じるカタルシスレベル(0-100)")
     improvement_advice: str = Field(..., description="改善アドバイス")
+    suggested_diff: str = Field(default="", description="具体的な修正済み原稿の差分提案。品質不足と判断した箇所の書き換え案。")
 
 class MarketingAssets(BaseModel):
     catchcopies: List[str] = Field(..., description="読者を惹きつけるキャッチコピー案（3つ以上）")
     tags: List[str] = Field(..., description="検索用タグ（5つ以上）")
-    # legacy fields removed
 
 class NovelStructure(BaseModel):
     title: str
@@ -201,7 +197,6 @@ class NovelStructure(BaseModel):
     mc_profile: CharacterRegistry
     plots: List[PlotEpisode]
     marketing_assets: MarketingAssets
-    # legacy fields removed
 
 class Phase2Structure(BaseModel):
     plots: List[PlotEpisode]
@@ -217,7 +212,6 @@ class EpisodeResponse(BaseModel):
     content: str = Field(..., description="エピソード本文 (1500-2000文字)")
     summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
     next_world_state: WorldState = Field(..., description="この話の結果更新された世界状態")
-    # cliffhanger_self_score removed/merged into QualityReport check
 
 class TrendSeed(BaseModel):
     genre: str
@@ -228,10 +222,11 @@ class TrendSeed(BaseModel):
     style: str
 
 # ==========================================
-# プロンプト集約 (PROMPT_TEMPLATES)
+# Prompt Manager
 # ==========================================
-PROMPT_TEMPLATES = {
-    "system_rules": """# SYSTEM RULES: STRICT ADHERENCE REQUIRED
+class PromptManager:
+    TEMPLATES = {
+        "system_rules": """# SYSTEM RULES: STRICT ADHERENCE REQUIRED
 【キャラクター定義の絶対遵守】
 以下のキャラクター設定を物語の最後まで**固定**せよ。途中で口調や一人称を変更することは「重大なエラー」とみなす。
 
@@ -246,6 +241,7 @@ PROMPT_TEMPLATES = {
 6. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
    ※単なる状況説明ではなく、主人公のフィルターを通した『歪んだ世界観』として情景を記述せよ。
 7. [RELATIONSHIPS] 現在の他者との関係性を口調や態度に反映せよ: {relations}
+8. [NUMBERS] 金額・回数・ステータス値などの数量は「算用数字（1, 2, 100）」を使用し、四字熟語や慣用句（一石二鳥、百戦錬磨など）は「漢数字」を使用せよ。
 
 【日本語作法・厳格なルール】
 1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。「…」や「...」は禁止。
@@ -260,7 +256,7 @@ PROMPT_TEMPLATES = {
 {style_instruction}
 --------------------------------------------------
 """,
-    "writing_rules": """
+        "writing_rules": """
 【執筆プロトコル: 一括生成モード】
 以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
 
@@ -281,7 +277,7 @@ PROMPT_TEMPLATES = {
    - **決め台詞（キラーフレーズ）の直前と直後には必ず空行を入れ、独立させよ。**
    - **重要な名詞やキーワードには、カクヨム記法の傍点 《《対象》》 を自ら付与せよ。**
 """,
-    "cliffhanger_protocol": """
+        "cliffhanger_protocol": """
 【究極の「引き」生成ロジック: Cliffhanger Protocol】
 各エピソードの結末は、文脈に応じて最も効果的な「引き」を自律的に判断し、**「読者が次を読まずにいられない状態」**を強制的に作り出せ。
 
@@ -294,8 +290,143 @@ PROMPT_TEMPLATES = {
    - あなたは解決の1秒前に筆を置く、冷酷なディレクターである。
    - 絶体絶命の瞬間、あるいは秘密が暴かれる**「直前」で物語を強制終了**せよ。
    - 読者が「救い」や「納得」を得る記述を一切排除せよ。安心させず、解決しきらないこと。
+""",
+        "trend_analysis_prompt": """
+あなたはカクヨム市場分析のプロフェッショナルです。
+「カクヨムの週間ランキング上位100作品」の傾向を模倣し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
+
+特に以下の4要素とトレンドの掛け合わせを優先すること:
+1. **追放・ざまぁ**: 理不尽な追放からの圧倒的逆転
+2. **現代ダンジョン**: 配信、探索、現実世界での無双
+3. **悪役令嬢**: 断罪回避、内政、溺愛
+4. **異世界転生**: チート能力、知識チート、スローライフ
+
+JSON形式で以下のキーを含めて出力せよ:
+- genre: ジャンル
+- keywords: 3つの主要キーワード
+- personality: 主人公の性格（詳細に）
+- tone: 主人公の口調（一人称）
+- hook_text: 読者を惹きつける「一行あらすじ」
+- style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
+""",
+        "qa_evaluation_prompt": """
+あなたはカクヨムランキング1位を目指すための総合検閲エンジンです。
+以下のエピソード本文と「Bible（世界設定）」を照合し、**一回の推論で**品質レポートを作成せよ。
+
+【Bible Settings】
+{settings}
+
+【Episode Content】
+{content}
+
+以下の項目を厳しく評価し、JSONで出力せよ:
+1. **整合性(Consistency)**: 設定矛盾はないか？ (0-100)
+2. **クリフハンガー(Cliffhanger)**: 続きを読ませる引きの強さ (0-100)。80点未満はリライト対象。
+3. **カクヨム訴求力(Appeal)**: 「ざまぁ」「無双」「尊さ」など、カクヨム読者に刺さる要素の強さ (0-100)。
+4. **ストレス/カタルシス**: 読者が感じるストレス度とカタルシス度を数値化せよ。
+5. **書き換え提案(Suggested Diff)**: スコアが低い場合、または改善の余地がある場合、具体的にどの文章をどう書き換えるべきか、修正済みのテキスト案（差分）を提示せよ。
+
+JSON出力形式:
+{{
+    "is_consistent": true/false,
+    "fatal_errors": ["..."],
+    "consistency_score": 85,
+    "cliffhanger_score": 90,
+    "kakuyomu_appeal_score": 88,
+    "stress_level": 20,
+    "catharsis_level": 80,
+    "improvement_advice": "具体的な改善指示...",
+    "suggested_diff": "【修正案】\\n原文「...」\\n↓\\n修正「...」\\n理由: ..."
+}}
+""",
+        "plot_phase1": """
+あなたはWeb小説の神級プロットアーキテクトです。
+ジャンル「{genre}」で、カクヨム読者を熱狂させる**全50話完結の物語構造**を作成してください。
+
+【ユーザー指定の絶対条件】
+1. 文体: 「{style_name}」
+2. 主人公: 性格{mc_personality}, 口調「{mc_tone}」
+3. テーマ: {keywords}
+
+【Task: Phase 1 (Ep 1-25)】
+作品設定、前半パートである**第1話〜第25話**の詳細プロット、マーケティングアセットを作成せよ。
+前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
+**重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
+**重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
+
+Output strictly in JSON format following this schema:
+{schema}
+""",
+        "plot_phase2": """
+あなたはWeb小説の神級プロットアーキテクトです。
+現在、第{current_ep}話まで執筆が完了しました。
+最新の世界状態（Bible）と物語の展開に基づき、**第{current_ep_plus_1}話〜第50話（最終話）**のプロットを再構成してください。
+
+【Current Bible State】
+{bible_context}
+
+【Recent Story Flow】
+{history_summ}
+
+【Task】
+後半の展開を劇的に、かつ整合性が取れるように作成せよ。
+**重要: 各エピソードは「Next Hook」で終わらせること。**
+**重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
+
+Output strictly in JSON format following this schema:
+{schema}
+""",
+        "episode_writer": """
+{system_rules}
+{entity_context}
+{writing_rules}
+{cliffhanger_protocol}
+
+【Pacing Instruction】
+{pacing_instruction}
+
+【Role: Novelist ({current_model})】
+以下のプロットに基づき、**第{ep_num}話**の本文を一括執筆し、結果をJSON形式で出力せよ。
+1. `content`: 本文 (1500-2000文字)
+2. `summary`: 次話へ繋ぐための要約
+3. `next_world_state`: この話で確定した設定・変化した状態・解決した謎・新たな伏線を反映した最新のBible状態
+
+【Pending Foreshadowing (Priority)】
+{pending_foreshadowing}
+{must_resolve_instruction}
+
+【前話からの文脈】
+...{prev_context_text}
+
+【今回のプロット】
+{episode_plot_text}
+
+【World Context (Bible v{expected_version})】
+{bible_context}
+
+【Rewrite Instruction (Chain of Thought)】
+{rewrite_instruction}
+""",
+        "rewrite_critique": """
+【重要: 執筆やり直し命令】
+先ほどの出力は品質基準を満たさなかったため、却下されました。
+以下の「却下された原稿」と「品質保証レポート（Critique）」を熟読し、同じ過ちを犯さないように論理的に思考した上で、最高品質のエピソードを再執筆せよ。
+
+[Rejected Draft]:
+{rejected_content}
+
+[QA Critique]:
+- Improvement Advice: {improvement_advice}
+- Suggested Diff: {suggested_diff}
+
+上記の指摘を反映し、特に「引きの強さ」と「カクヨム読者への訴求力」を飛躍的に高めた原稿を作成せよ。
 """
-}
+    }
+
+    def get(self, name, **kwargs):
+        if name not in self.TEMPLATES:
+            raise ValueError(f"Template '{name}' not found.")
+        return self.TEMPLATES[name].format(**kwargs)
 
 # ==========================================
 # Formatter Class (Regex-based)
@@ -304,76 +435,9 @@ class TextFormatter:
     def __init__(self, engine):
         self.engine = engine # 互換性のために保持するが使用しない
 
-    def _kanji_to_arabic(self, text):
-        """漢数字（十、百、千、万）を含む金額や個数を算用数字に置換する"""
-        def _repl(match):
-            s = match.group(0)
-            # 単純な1-9の置換
-            table = str.maketrans('一二三四五六七八九', '123456789')
-            # 基本的な漢数字パターンを数値に変換する簡易ロジック
-            # ※完全な自然言語解析は重いため、Web小説の一般的表記(一万、三十、100回など)を対象とする
-            
-            # 純粋な漢数字列（万、億などを含まない）の場合
-            if re.fullmatch(r'[一二三四五六七八九〇]+', s):
-                return s.translate(table)
-
-            # 万・億・兆などを含む、あるいは「十」などの位取りを含む場合
-            # ここでは厳密な計算よりも、指定された「算用数字への置換」を優先し
-            # 一般的なWeb小説での表記揺れ（例：三十 -> 30, 一億 -> 1億）へ統一する
-            
-            # 簡易マッピング: 頻出する位取りのみ対応
-            result = s
-            result = result.replace('十', '0') # 暫定的な単純置換（三十 -> 30）
-            # ただし「十」単体の場合は10、「百」は100等の文脈依存があるため、
-            # 厳密な変換関数を実装する
-            
-            total = 0
-            temp = 0
-            
-            # 簡易計算ロジック（あくまで主要なケースのカバー）
-            # 例: 三十 -> 30, 百五十 -> 150, 一万 -> 10000
-            # 複雑なケースはリスク回避のため、数字のみを変換する方式をとる
-            converted_chars = []
-            for char in s:
-                if char in '一二三四五六七八九':
-                    converted_chars.append(char.translate(table))
-                elif char in '十百千万億兆':
-                     # 単位として残すか、0に変換するか。
-                     # プロンプト要件は「算用数字に置換」
-                     # ここでは「1万」のように単位を残すのがWeb小説流儀だが、
-                     # 「十、百、千、万」を対象とあるため、アラビア数字展開を試みる
-                     pass
-            
-            # 正規表現による強力な置換（ルールベース）
-            s_conv = s.translate(table)
-            
-            # 十の位の処理 (例: 3十 -> 30, 十5 -> 15, 十 -> 10)
-            s_conv = re.sub(r'(\d)十(\d)', r'\1\2', s_conv)
-            s_conv = re.sub(r'(\d)十', r'\1\d0', s_conv).replace('d0', '0')
-            s_conv = re.sub(r'十(\d)', r'1\1', s_conv)
-            s_conv = s_conv.replace('十', '10')
-            
-            # 百の位
-            s_conv = re.sub(r'(\d)百(\d\d)', r'\1\2', s_conv)
-            s_conv = re.sub(r'(\d)百(\d)', r'\1\2', s_conv).replace(r'(\d)0(\d)', r'\1\2') # 補正困難なため簡易化
-            # 百・千・万はアラビア数字化すると可読性が落ちる場合があるが（10000など）、
-            # 指示に従い可能な限り変換する
-            s_conv = s_conv.replace('百', '00').replace('千', '000').replace('万', '0000')
-            
-            # ゴミ取り（例: 10000円 -> 10000円）
-            return s_conv
-
-        # 金額や個数と思われる箇所（助数詞の前など）の漢数字を対象にする
-        # 誤爆を防ぐため、特定の単位の前にある漢数字列を狙い撃つ
-        pattern = r'[一二三四五六七八九十百千万]+(?=[円人個本匹枚回年歳日時間部作話]|(?<=[0-9])|(?=[0-9]))'
-        return re.sub(pattern, _repl, text)
-
     def _clean_kakuyomu_style(self, text):
-        """カクヨム向け物理整形: 強制空行挿入と漢数字変換"""
-        # 1. 漢数字→算用数字変換
-        text = self._kanji_to_arabic(text)
-
-        # 2. 地の文3行以上で強制空行
+        """カクヨム向け物理整形: 強制空行挿入"""
+        # 地の文3行以上で強制空行
         lines = text.split('\n')
         formatted_lines = []
         narrative_count = 0
@@ -396,8 +460,6 @@ class TextFormatter:
                 narrative_count = 0 # 会話文でリセット
             
             # 3行連続した場合、その行の前に空行を入れる（読みやすさのため）
-            # ※指示は「3行以上連続した場合...強制的に空行を挿入」
-            # ここでは3行目の直前に挿入することでブロックを分割する
             if narrative_count >= 3:
                 formatted_lines.append('') # 空行挿入
                 narrative_count = 1 # カウントリセット（この行が新たなブロックの1行目となる）
@@ -413,7 +475,6 @@ class TextFormatter:
         text = re.sub(r'…{1,}', '……', text)
         text = re.sub(r'\.{2,}', '……', text)
         # 奇数個の……を偶数個に補正（簡易的）
-        # 完全な偶数化は難しいが、頻出パターンを修正
         text = text.replace('………', '……') 
         
         # 2. 感嘆符・疑問符の後のスペース挿入
@@ -423,7 +484,7 @@ class TextFormatter:
         # 3. 連続する空行の削除（最大1行まで）
         text = re.sub(r'\n{3,}', '\n\n', text)
         
-        # 4. 行頭・行末の空白削除（全角スペースは意図的なインデントの可能性があるため保持する場合もあるが、ここでは安全のため行末のみトリム）
+        # 4. 行頭・行末の空白削除
         lines = [line.rstrip() for line in text.splitlines()]
         text = "\n".join(lines)
         
@@ -431,7 +492,7 @@ class TextFormatter:
         text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
         text = text.replace('**', '').replace('##', '')
 
-        # 6. カクヨム物理整形（新規追加）
+        # 6. カクヨム物理整形
         text = self._clean_kakuyomu_style(text)
 
         return text.strip()
@@ -585,6 +646,87 @@ class DatabaseManager:
 db = DatabaseManager(DB_FILE)
 
 # ==========================================
+# Repository Pattern
+# ==========================================
+class NovelRepository:
+    def __init__(self, db_manager):
+        self.db = db_manager
+
+    async def create_novel(self, data, genre, style_dna_str):
+        if isinstance(data, dict): data_dict = data
+        else: data_dict = data.model_dump()
+        
+        dna = json.dumps({
+            "tone": data_dict['mc_profile']['tone'], 
+            "personality": data_dict['mc_profile'].get('personality', ''),
+            "style_mode": style_dna_str,
+            "pov_type": "一人称"
+        }, ensure_ascii=False)
+        
+        ability_val = data_dict['mc_profile'].get('ability', '')
+        
+        marketing_data_model = data.marketing_assets if isinstance(data, BaseModel) else MarketingAssets.model_validate(data_dict['marketing_assets'])
+
+        # target_eps を 50 に設定
+        bid = await self.db.save_model(
+            "INSERT INTO books (title, genre, synopsis, concept, target_eps, style_dna, status, special_ability, created_at, marketing_data) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                data_dict['title'], 
+                genre, 
+                data_dict['synopsis'], 
+                data_dict['concept'], 
+                50, 
+                dna, 
+                'active', 
+                ability_val, 
+                datetime.datetime.now().isoformat(),
+                marketing_data_model
+            )
+        )
+        
+        registry_json = json.dumps(data_dict['mc_profile'], ensure_ascii=False)
+        monologue_val = data_dict['mc_profile'].get('monologue_style', '')
+        
+        await self.db.save_model("INSERT INTO characters (book_id, name, role, registry_data, monologue_style) VALUES (?,?,?,?,?)", 
+                          (bid, data_dict['mc_profile']['name'], '主人公', registry_json, monologue_val))
+        
+        await self.db.save_model("INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
+                     (bid, "{}", [], [], [], "{}", 0, datetime.datetime.now().isoformat()))
+
+        saved_plots = []
+        for p in data_dict['plots']:
+            full_title = f"第{p['ep_num']}話 {p['title']}"
+            main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
+            scenes_list = p.get('scenes', []) 
+            
+            await self.db.save_model(
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (bid, p['ep_num'], full_title, main_ev, 
+                 p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'),
+                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
+            )
+            saved_plots.append(p)
+        return bid, saved_plots
+
+    async def add_plots(self, book_id, data_p2):
+        saved_plots = []
+        for p in data_p2['plots']:
+            full_title = f"第{p['ep_num']}話 {p['title']}"
+            main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
+            scenes_list = p.get('scenes', [])
+            
+            await self.db.save_model(
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (book_id, p['ep_num'], full_title, main_ev, 
+                 p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'), 
+                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
+            )
+            saved_plots.append(p)
+        return saved_plots
+
+# ==========================================
 # 2. Dynamic Bible Manager (Optimistic Locking)
 # ==========================================
 class DynamicBibleManager:
@@ -611,15 +753,30 @@ class DynamicBibleManager:
             state = WorldState(settings="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
             return state, 0
 
-    # 統合⑤ Bible更新の一本化
-    async def apply_bible_delta(self, next_state: WorldState):
-        """
-        執筆後の next_world_state を受け取り、現在の最新状態とマージして差分を適用する。
-        DB保存処理もここに隠蔽する。
-        """
-        current_state, current_ver = await self.get_current_state()
+    async def get_prompt_context(self) -> str:
+        state, ver = await self.get_current_state()
+        return f"""
+【WORLD STATE (Current v{ver})】
+[SETTINGS]: {state.settings}
+[REVEALED]: {json.dumps(state.revealed, ensure_ascii=False)}
+[SOLVED MYSTERIES]: {json.dumps(state.revealed_mysteries, ensure_ascii=False)}
+[PENDING FORESHADOWING]: {json.dumps(state.pending_foreshadowing, ensure_ascii=False)}
+[DEPENDENCY GRAPH (Resolution Plan)]: {state.dependency_graph}
+"""
 
-        # Merge Lists (Set logic to avoid duplicates)
+class BibleSynchronizer:
+    def __init__(self, book_id):
+        self.book_id = book_id
+        self.bible_manager = DynamicBibleManager(book_id)
+
+    async def save_atomic(self, chapter_data: Dict[str, Any], next_state: WorldState):
+        """
+        本文生成と同時にBibleとChapterをアトミックに更新する。
+        """
+        # 1. 現在のBible状態を取得
+        current_state, current_ver = await self.bible_manager.get_current_state()
+
+        # 2. Bible状態のマージ (Delta Apply)
         new_revealed = list(set(current_state.revealed + next_state.revealed))
         new_mysteries = list(set(current_state.revealed_mysteries + next_state.revealed_mysteries))
         new_foreshadowing = list(set(current_state.pending_foreshadowing + next_state.pending_foreshadowing))
@@ -644,6 +801,22 @@ class DynamicBibleManager:
 
         new_version = current_ver + 1
 
+        # 3. Formatterの適用（Chapter保存用）
+        formatter = TextFormatter(None)
+        # Fetch keywords for formatting
+        mc = await db.fetch_one("SELECT registry_data FROM characters WHERE book_id=? AND role='主人公'", (self.book_id,))
+        k_dict = {}
+        if mc and mc['registry_data']:
+            try: 
+                reg = json.loads(mc['registry_data'])
+                k_str = reg.get('keyword_dictionary', '{}')
+                k_dict = json.loads(k_str) if isinstance(k_str, str) else k_str
+            except: pass
+        
+        content_formatted = await formatter.format(chapter_data['content'], k_dict=k_dict)
+        
+        # 4. DBへのアトミック更新（擬似的なトランザクションとして連続実行）
+        # Bible Insert
         await db.save_model(
             "INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
             (
@@ -657,55 +830,18 @@ class DynamicBibleManager:
                 datetime.datetime.now().isoformat()
             )
         )
+        
+        # Chapter Insert/Update
+        await db.save_model(
+            """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (self.book_id, chapter_data['ep_num'], chapter_data.get('title', f"第{chapter_data['ep_num']}話"), content_formatted, chapter_data.get('summary', ''), '', next_state, datetime.datetime.now().isoformat())
+        )
+        
+        # Plot Status Update
+        await db.save_model("UPDATE plot SET status='completed' WHERE book_id=? AND ep_num=?", (self.book_id, chapter_data['ep_num']))
+
         return new_version
-
-    async def get_prompt_context(self) -> str:
-        state, ver = await self.get_current_state()
-        return f"""
-【WORLD STATE (Current v{ver})】
-[SETTINGS]: {state.settings}
-[REVEALED]: {json.dumps(state.revealed, ensure_ascii=False)}
-[SOLVED MYSTERIES]: {json.dumps(state.revealed_mysteries, ensure_ascii=False)}
-[PENDING FORESHADOWING]: {json.dumps(state.pending_foreshadowing, ensure_ascii=False)}
-[DEPENDENCY GRAPH (Resolution Plan)]: {state.dependency_graph}
-"""
-
-# ==========================================
-# 3. Adaptive Rate Limiter (Enhanced for 503)
-# ==========================================
-class AdaptiveRateLimiter:
-    def __init__(self, initial_limit=5, min_limit=1):
-        self.semaphore = asyncio.Semaphore(initial_limit)
-        
-    async def acquire(self):
-        await self.semaphore.acquire()
-
-    def release(self):
-        self.semaphore.release()
-    
-    async def run_with_retry(self, func, *args, **kwargs):
-        retries = 0
-        max_retries = 8 # Increased for 503 handling
-        base_delay = 5.0 # Increased for 503 handling
-        
-        while retries <= max_retries:
-            await self.acquire()
-            try:
-                return await func(*args, **kwargs)
-            except Exception as e:
-                error_str = str(e)
-                # Added 503 / UNAVAILABLE to catch block
-                if any(x in error_str for x in ["429", "ResourceExhausted", "503", "UNAVAILABLE", "Overloaded"]):
-                    delay = (base_delay * (2 ** retries)) + random.uniform(0.1, 1.0) # Jitter
-                    print(f"⚠️ API Busy ({error_str[:50]}...). Retry {retries+1}/{max_retries} in {delay:.2f}s...")
-                    await asyncio.sleep(delay)
-                    retries += 1
-                    if retries > max_retries:
-                        raise e
-                else:
-                    raise e
-            finally:
-                self.release()
 
 # ==========================================
 # 4. New Classes (TrendAnalyst, QA, Pacing)
@@ -718,24 +854,7 @@ class TrendAnalyst:
     async def get_dynamic_seed(self) -> dict:
         print("TrendAnalyst: Scanning Kakuyomu Global Trends via API...")
         # 改善⑦ カクヨム特化トレンド分析
-        prompt = """
-あなたはカクヨム市場分析のプロフェッショナルです。
-「カクヨムの週間ランキング上位100作品」の傾向を模倣し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
-
-特に以下の4要素とトレンドの掛け合わせを優先すること:
-1. **追放・ざまぁ**: 理不尽な追放からの圧倒的逆転
-2. **現代ダンジョン**: 配信、探索、現実世界での無双
-3. **悪役令嬢**: 断罪回避、内政、溺愛
-4. **異世界転生**: チート能力、知識チート、スローライフ
-
-JSON形式で以下のキーを含めて出力せよ:
-- genre: ジャンル
-- keywords: 3つの主要キーワード
-- personality: 主人公の性格（詳細に）
-- tone: 主人公の口調（一人称）
-- hook_text: 読者を惹きつける「一行あらすじ」
-- style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
-"""
+        prompt = self.engine.prompt_manager.get("trend_analysis_prompt")
         try:
             res = await self.engine._generate_with_retry(
                 model=MODEL_MARKETING,
@@ -770,34 +889,11 @@ class QualityAssuranceEngine:
     # 統合⑥ 総合検閲エンジンの構築
     async def evaluate(self, content: str, bible_manager: DynamicBibleManager) -> QualityReport:
         state, _ = await bible_manager.get_current_state()
-        prompt = f"""
-あなたはカクヨムランキング1位を目指すための総合検閲エンジンです。
-以下のエピソード本文と「Bible（世界設定）」を照合し、**一回の推論で**品質レポートを作成せよ。
-
-【Bible Settings】
-{state.settings}
-
-【Episode Content】
-{content[:5000]}...
-
-以下の項目を厳しく評価し、JSONで出力せよ:
-1. **整合性(Consistency)**: 設定矛盾はないか？ (0-100)
-2. **クリフハンガー(Cliffhanger)**: 続きを読ませる引きの強さ (0-100)。80点未満はリライト対象。
-3. **カクヨム訴求力(Appeal)**: 「ざまぁ」「無双」「尊さ」など、カクヨム読者に刺さる要素の強さ (0-100)。
-4. **ストレス/カタルシス**: 読者が感じるストレス度とカタルシス度を数値化せよ。
-
-JSON出力形式:
-{{
-    "is_consistent": true/false,
-    "fatal_errors": ["..."],
-    "consistency_score": 85,
-    "cliffhanger_score": 90,
-    "kakuyomu_appeal_score": 88,
-    "stress_level": 20,
-    "catharsis_level": 80,
-    "improvement_advice": "具体的な改善指示..."
-}}
-"""
+        prompt = self.engine.prompt_manager.get(
+            "qa_evaluation_prompt",
+            settings=state.settings,
+            content=content[:5000]
+        )
         try:
             # 修正: Gemmaモデルの場合はMIMEタイプを指定しない
             qa_config = {}
@@ -825,7 +921,8 @@ JSON出力形式:
                 is_consistent=True, fatal_errors=[], consistency_score=50,
                 cliffhanger_score=50, kakuyomu_appeal_score=50,
                 stress_level=0, catharsis_level=0,
-                improvement_advice="QA Error"
+                improvement_advice="QA Error",
+                suggested_diff="QA Error"
             )
 
 class PacingGraph:
@@ -871,24 +968,25 @@ class PacingGraph:
 class UltraEngine:
     def __init__(self, api_key):
         self.client = genai.Client(api_key=api_key) if api_key else None
-        self.rate_limiter = AdaptiveRateLimiter(initial_limit=5)
+        # AdaptiveRateLimiter Removed
         self.safety_settings = [
             types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
         ]
+        self.prompt_manager = PromptManager()
+        self.repo = NovelRepository(db)
         self.trend_analyst = TrendAnalyst(self)
         self.qa_engine = QualityAssuranceEngine(self)
         self.formatter = TextFormatter(self)
 
     def _generate_system_rules(self, char_registry: CharacterRegistry, style="style_web_standard"):
         style_def = STYLE_DEFINITIONS.get(style, STYLE_DEFINITIONS["style_web_standard"])
-        
-        # relations mapping to f-string in system_rules template
         relations_str = char_registry.relations
         
-        return PROMPT_TEMPLATES["system_rules"].format(
+        return self.prompt_manager.get(
+            "system_rules",
             mc_name=char_registry.name,
             mc_tone=char_registry.tone,
             mc_personality=char_registry.personality,
@@ -901,13 +999,26 @@ class UltraEngine:
         )
 
     async def _generate_with_retry(self, model, contents, config):
-        async def _call():
-            return await self.client.aio.models.generate_content(
-                model=model, 
-                contents=contents, 
-                config=config
-            )
-        return await self.rate_limiter.run_with_retry(_call)
+        retries = 0
+        max_retries = 8
+        base_delay = 5.0
+
+        while True:
+            try:
+                return await self.client.aio.models.generate_content(
+                    model=model, 
+                    contents=contents, 
+                    config=config
+                )
+            except Exception as e:
+                if retries >= max_retries:
+                    raise e
+                
+                # Simple exponential backoff
+                delay = (base_delay * (2 ** retries)) + random.uniform(0.1, 1.0)
+                print(f"⚠️ API Error: {e}. Retry {retries+1}/{max_retries} in {delay:.2f}s...")
+                await asyncio.sleep(delay)
+                retries += 1
 
     # ---------------------------------------------------------
     # Core Logic
@@ -918,27 +1029,18 @@ class UltraEngine:
         print("Step 1: Hyper-Resolution Plot Generation Phase 1 (Ep 1-25)...")
         
         style_name = STYLE_DEFINITIONS.get(style, {"name": style}).get("name")
-
         structure_schema = NovelStructure.model_json_schema()
         
-        prompt = f"""
-あなたはWeb小説の神級プロットアーキテクトです。
-ジャンル「{genre}」で、カクヨム読者を熱狂させる**全50話完結の物語構造**を作成してください。
+        prompt = self.prompt_manager.get(
+            "plot_phase1",
+            genre=genre,
+            style_name=style_name,
+            mc_personality=mc_personality,
+            mc_tone=mc_tone,
+            keywords=keywords,
+            schema=json.dumps(structure_schema, ensure_ascii=False)
+        )
 
-【ユーザー指定の絶対条件】
-1. 文体: 「{style_name}」
-2. 主人公: 性格{mc_personality}, 口調「{mc_tone}」
-3. テーマ: {keywords}
-
-【Task: Phase 1 (Ep 1-25)】
-作品設定、前半パートである**第1話〜第25話**の詳細プロット、マーケティングアセットを作成せよ。
-前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
-**重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
-
-Output strictly in JSON format following this schema:
-{json.dumps(structure_schema, ensure_ascii=False)}
-"""
-        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
         try:
             res = await self._generate_with_retry(
                 model=MODEL_ULTRALONG,
@@ -981,25 +1083,15 @@ Output strictly in JSON format following this schema:
 
         structure_schema = Phase2Structure.model_json_schema()
 
-        prompt = f"""
-あなたはWeb小説の神級プロットアーキテクトです。
-現在、第{current_ep}話まで執筆が完了しました。
-最新の世界状態（Bible）と物語の展開に基づき、**第{current_ep+1}話〜第50話（最終話）**のプロットを再構成してください。
-
-【Current Bible State】
-{bible_context}
-
-【Recent Story Flow】
-{history_summ}
-
-【Task】
-後半の展開を劇的に、かつ整合性が取れるように作成せよ。
-**重要: 各エピソードは「Next Hook」で終わらせること。**
-
-Output strictly in JSON format following this schema:
-{json.dumps(structure_schema, ensure_ascii=False)}
-"""
-        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
+        prompt = self.prompt_manager.get(
+            "plot_phase2",
+            current_ep=current_ep,
+            current_ep_plus_1=current_ep+1,
+            bible_context=bible_context,
+            history_summ=history_summ,
+            schema=json.dumps(structure_schema, ensure_ascii=False)
+        )
+        
         try:
             res = await self._generate_with_retry(
                 model=MODEL_ULTRALONG,
@@ -1029,7 +1121,8 @@ Output strictly in JSON format following this schema:
         if not target_plots: return None
 
         full_chapters = []
-        bible_manager = DynamicBibleManager(book_data['book_id'])
+        bible_synchronizer = BibleSynchronizer(book_data['book_id'])
+        bible_manager = bible_synchronizer.bible_manager
         
         # CharacterRegistry 構築
         try:
@@ -1042,6 +1135,8 @@ Output strictly in JSON format following this schema:
         prev_context_text = prev_ep_row['content'][-500:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
 
         system_rules = self._generate_system_rules(char_registry, style=style_dna_str)
+        writing_rules = self.prompt_manager.get("writing_rules")
+        cliffhanger_protocol = self.prompt_manager.get("cliffhanger_protocol")
         
         for plot in target_plots:
             ep_num = plot['ep_num']
@@ -1059,7 +1154,9 @@ Output strictly in JSON format following this schema:
             scenes_str = ""
             if isinstance(plot.get('scenes'), list):
                 for s in plot['scenes']:
-                    scenes_str += f"- {s.get('location','')}: {s.get('action','')} ({s.get('dialogue_point','')})\n"
+                    # Handle both Dict and SceneDetail object
+                    s_dict = s.model_dump() if hasattr(s, 'model_dump') else s
+                    scenes_str += f"- {s_dict.get('location','')}: {s_dict.get('action','')} ({s_dict.get('dialogue_point','')} - {s_dict.get('role', '')})\n"
 
             episode_plot_text = f"""
 【Episode Title】{plot['title']}
@@ -1094,47 +1191,34 @@ Output strictly in JSON format following this schema:
                 max_retries = float('inf')
             else:
                 max_retries = 2
-            current_rewrite_instruction = rewrite_instruction
+            
+            # リライト時の指示（初期値は引数から、または空）
+            current_rewrite_instruction = rewrite_instruction if rewrite_instruction else "なし"
 
             async with semaphore:
                 while retry_count <= max_retries:
-                    write_prompt = f"""
-{system_rules}
-{entity_context}
-{PROMPT_TEMPLATES["writing_rules"]}
-{PROMPT_TEMPLATES["cliffhanger_protocol"]}
-
-【Pacing Instruction】
-{pacing_instruction}
-
-【Role: Novelist ({current_model})】
-以下のプロットに基づき、**第{ep_num}話**の本文を一括執筆し、結果をJSON形式で出力せよ。
-1. `content`: 本文 (1500-2000文字)
-2. `summary`: 次話へ繋ぐための要約
-3. `next_world_state`: この話で確定した設定・変化した状態・解決した謎・新たな伏線を反映した最新のBible状態
-
-【Pending Foreshadowing (Priority)】
-{json.dumps(world_state.pending_foreshadowing, ensure_ascii=False)}
-{must_resolve_instruction}
-
-【前話からの文脈】
-...{prev_context_text}
-
-【今回のプロット】
-{episode_plot_text}
-
-【World Context (Bible v{expected_version})】
-{bible_context}
-
-【Rewrite Instruction】
-{current_rewrite_instruction if current_rewrite_instruction else "なし"}
-"""
+                    write_prompt = self.prompt_manager.get(
+                        "episode_writer",
+                        system_rules=system_rules,
+                        entity_context=entity_context,
+                        writing_rules=writing_rules,
+                        cliffhanger_protocol=cliffhanger_protocol,
+                        pacing_instruction=pacing_instruction,
+                        current_model=current_model,
+                        ep_num=ep_num,
+                        pending_foreshadowing=json.dumps(world_state.pending_foreshadowing, ensure_ascii=False),
+                        must_resolve_instruction=must_resolve_instruction,
+                        prev_context_text=prev_context_text,
+                        episode_plot_text=episode_plot_text,
+                        expected_version=expected_version,
+                        bible_context=bible_context,
+                        rewrite_instruction=current_rewrite_instruction
+                    )
+                    
                     try:
                         gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
-                        # 修正: Gemmaモデル回避。Gemini系のみJSONモード有効化
                         if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
                             gen_config_args["response_mime_type"] = "application/json"
-                            # response_schema は使用しない
                         
                         res = await self._generate_with_retry(
                             model=current_model, 
@@ -1152,13 +1236,20 @@ Output strictly in JSON format following this schema:
                         qa_report = await self.qa_engine.evaluate(ep_data['content'], bible_manager)
                         
                         # リライト判定ループ
-                        # カクヨム訴求力(Appeal)やクリフハンガーが低い場合リライト
                         target_cliffhanger = 90 if 1 <= ep_num <= 5 else 80
                         target_appeal = 90 if 1 <= ep_num <= 5 else 70
                         
                         if (qa_report.cliffhanger_score < target_cliffhanger or qa_report.kakuyomu_appeal_score < target_appeal) and retry_count < max_retries:
                             print(f"⚠️ Low QA Score (Cliffhanger: {qa_report.cliffhanger_score}, Appeal: {qa_report.kakuyomu_appeal_score}). Retrying...")
-                            current_rewrite_instruction = f"【品質保証(QA)からの修正命令】\n{qa_report.improvement_advice}\n特にカクヨム読者への訴求力と結末の引きを強化せよ。"
+                            
+                            # リライト指示をChain of Thought形式で生成
+                            current_rewrite_instruction = self.prompt_manager.get(
+                                "rewrite_critique",
+                                rejected_content=ep_data['content'],
+                                improvement_advice=qa_report.improvement_advice,
+                                suggested_diff=qa_report.suggested_diff
+                            )
+                            
                             retry_count += 1
                             continue # 再生成へ
                         
@@ -1166,13 +1257,22 @@ Output strictly in JSON format following this schema:
                         full_content = ep_data['content']
                         ep_summary = ep_data['summary']
                         
-                        # Bible Sync (Unified Logic)
+                        # Bible Sync (Unified Logic with Atomic Save)
                         next_state_obj = WorldState(**ep_data['next_world_state']) if isinstance(ep_data['next_world_state'], dict) else ep_data['next_world_state']
-                        await bible_manager.apply_bible_delta(next_state_obj)
+                        
+                        # Prepare atomic save data
+                        chapter_save_data = {
+                            'ep_num': ep_num,
+                            'title': plot['title'],
+                            'content': full_content,
+                            'summary': ep_summary
+                        }
+                        
+                        await bible_synchronizer.save_atomic(chapter_save_data, next_state_obj)
                         
                         prev_context_text = f"（第{ep_num}話要約）{ep_summary}\n（直近の文）{full_content[-200:]}"
 
-                        # ストレス/カタルシス値をプロットテーブルに更新（次回のPacing計算用）
+                        # ストレス/カタルシス値をプロットテーブルに更新
                         await db.execute(
                             "UPDATE plot SET stress=?, catharsis=?, cliffhanger_score=? WHERE book_id=? AND ep_num=?",
                             (qa_report.stress_level, qa_report.catharsis_level, qa_report.cliffhanger_score, book_data['book_id'], ep_num)
@@ -1210,7 +1310,11 @@ Output strictly in JSON format following this schema:
         
         for ep_id in target_ep_ids:
             eval_data = eval_map.get(ep_id, {})
-            instruction = f"【品質保証(QA)からの修正命令】\n{eval_data.get('improvement_point', '')}"
+            # リライト指示を Chain of Thought で構築
+            # リライトターゲットの場合、前回の内容（DBにあるはず）を取得する必要があるが、
+            # ここでは簡易的に指示のみを渡す（本文がないため）
+            # もし本文があれば `rewrite_critique` テンプレートを使える
+            instruction = f"【品質保証(QA)からの修正命令】\n{eval_data.get('improvement_point', '')}\n{eval_data.get('suggested_diff', '')}"
             
             tasks.append(self.write_episodes(
                 book_data, ep_id, ep_id, 
@@ -1223,115 +1327,16 @@ Output strictly in JSON format following this schema:
         results = await asyncio.gather(*tasks)
         for res in results:
             if res and 'chapters' in res:
-                await self.save_chapters_to_db(book_data['book_id'], res['chapters'])
                 rewritten_count += 1
         return rewritten_count
 
     async def save_blueprint_to_db(self, data, genre, style_dna_str):
-        if isinstance(data, dict): data_dict = data
-        else: data_dict = data.model_dump()
-        
-        dna = json.dumps({
-            "tone": data_dict['mc_profile']['tone'], 
-            "personality": data_dict['mc_profile'].get('personality', ''),
-            "style_mode": style_dna_str,
-            "pov_type": "一人称"
-        }, ensure_ascii=False)
-        
-        ability_val = data_dict['mc_profile'].get('ability', '')
-        
-        # DatabaseManagerの自動変換機能を利用して保存
-        marketing_data_model = data.marketing_assets if isinstance(data, BaseModel) else MarketingAssets.model_validate(data_dict['marketing_assets'])
-
-        # target_eps を 50 に設定
-        bid = await db.save_model(
-            "INSERT INTO books (title, genre, synopsis, concept, target_eps, style_dna, status, special_ability, created_at, marketing_data) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (
-                data_dict['title'], 
-                genre, 
-                data_dict['synopsis'], 
-                data_dict['concept'], 
-                50, 
-                dna, 
-                'active', 
-                ability_val, 
-                datetime.datetime.now().isoformat(),
-                marketing_data_model # 自動JSON化
-            )
-        )
-        
-        # CharacterRegistry を使用して保存
-        registry_json = json.dumps(data_dict['mc_profile'], ensure_ascii=False)
-        monologue_val = data_dict['mc_profile'].get('monologue_style', '')
-        
-        await db.save_model("INSERT INTO characters (book_id, name, role, registry_data, monologue_style) VALUES (?,?,?,?,?)", 
-                          (bid, data_dict['mc_profile']['name'], '主人公', registry_json, monologue_val))
-        
-        await db.save_model("INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
-                     (bid, "{}", [], [], [], "{}", 0, datetime.datetime.now().isoformat()))
-
-        saved_plots = []
-        for p in data_dict['plots']:
-            full_title = f"第{p['ep_num']}話 {p['title']}"
-            main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
-            scenes_list = p.get('scenes', []) # 自動JSON化
-            
-            await db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (bid, p['ep_num'], full_title, main_ev, 
-                 p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'),
-                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
-            )
-            saved_plots.append(p)
-        return bid, saved_plots
+        # Delegate to Repository
+        return await self.repo.create_novel(data, genre, style_dna_str)
 
     async def save_additional_plots_to_db(self, book_id, data_p2):
-        saved_plots = []
-        for p in data_p2['plots']:
-            full_title = f"第{p['ep_num']}話 {p['title']}"
-            main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
-            scenes_list = p.get('scenes', [])
-            
-            await db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (book_id, p['ep_num'], full_title, main_ev, 
-                 p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'), 
-                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
-            )
-            saved_plots.append(p)
-        return saved_plots
-
-    async def save_chapters_to_db(self, book_id, chapters_list):
-        count = 0
-        if not chapters_list: return 0
-        
-        # Fetch keywords for formatting
-        mc = await db.fetch_one("SELECT registry_data FROM characters WHERE book_id=? AND role='主人公'", (book_id,))
-        k_dict = {}
-        if mc and mc['registry_data']:
-             try: 
-                 reg = json.loads(mc['registry_data'])
-                 k_str = reg.get('keyword_dictionary', '{}')
-                 k_dict = json.loads(k_str) if isinstance(k_str, str) else k_str
-             except: pass
-
-        for ch in chapters_list:
-            # Regex-based Formatter (No API Call)
-            content = await self.formatter.format(ch['content'], k_dict=k_dict)
-            
-            # World state is automatically serialized by DatabaseManager
-            w_state = ch.get('world_state', {})
-            
-            await db.save_model(
-                """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (book_id, ch['ep_num'], ch.get('title', f"第{ch['ep_num']}話"), content, ch.get('summary', ''), '', w_state, datetime.datetime.now().isoformat())
-            )
-            await db.save_model("UPDATE plot SET status='completed' WHERE book_id=? AND ep_num=?", (book_id, ch['ep_num']))
-            count += 1
-        return count
+        # Delegate to Repository
+        return await self.repo.add_plots(book_id, data_p2)
 
 # ==========================================
 # Task Functions
@@ -1390,8 +1395,8 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     total_count = 0
     for res_data in results:
         if res_data and 'chapters' in res_data:
-            c = await engine.save_chapters_to_db(bid, res_data['chapters'])
-            total_count += c
+            # count is merely the length of generated chapters in this batch
+            total_count += len(res_data['chapters'])
             
     print(f"Batch Done (Ep {start_ep}-{end_ep}). Total Episodes Written: {total_count}")
     return total_count, full_data, saved_style
