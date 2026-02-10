@@ -691,7 +691,7 @@ class NovelRepository:
                           (bid, data_dict['mc_profile']['name'], '主人公', registry_json, monologue_val))
         
         await self.db.save_model("INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
-                     (bid, "{}", [], [], [], "{}", 0, datetime.datetime.now().isoformat()))
+                             (bid, "{}", [], [], [], "{}", 0, datetime.datetime.now().isoformat()))
 
         saved_plots = []
         for p in data_dict['plots']:
@@ -865,10 +865,18 @@ class TrendAnalyst:
             )
             # テキストパース処理
             text = res.text.strip()
-            if text.startswith("```json"): text = text[7:]
-            elif text.startswith("```"): text = text[3:]
-            if text.endswith("```"): text = text[:-3]
-            seed = json.loads(text.strip())
+            # 抽出強化: 正規表現でJSON部分を取り出す
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                text = match.group(1)
+            
+            try:
+                seed = json.loads(text, strict=False)
+            except json.JSONDecodeError:
+                # 制御文字削除 (改行・タブは残す)
+                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+                seed = json.loads(text, strict=False)
+
             print(f"★ Trend Detected: {seed.get('genre', 'Unknown')} - {seed.get('hook_text', 'No hook')}")
             return seed
         except Exception as e:
@@ -908,10 +916,16 @@ class QualityAssuranceEngine:
             
             # テキストパース処理
             text = res.text.strip()
-            if text.startswith("```json"): text = text[7:]
-            elif text.startswith("```"): text = text[3:]
-            if text.endswith("```"): text = text[:-3]
-            data = json.loads(text.strip())
+            # 抽出強化
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                text = match.group(1)
+            
+            try:
+                data = json.loads(text, strict=False)
+            except json.JSONDecodeError:
+                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+                data = json.loads(text, strict=False)
             
             return QualityReport.model_validate(data)
             
@@ -1052,19 +1066,26 @@ class UltraEngine:
             )
             # テキストパース処理
             text = res.text.strip()
-            if text.startswith("```json"): text = text[7:]
-            elif text.startswith("```"): text = text[3:]
-            if text.endswith("```"): text = text[:-3]
-            data_dict = json.loads(text.strip())
+            # 抽出強化
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                text = match.group(1)
+            
+            try:
+                data_dict = json.loads(text, strict=False)
+            except json.JSONDecodeError:
+                # 改行・タブ以外の制御文字を削除
+                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+                data_dict = json.loads(text, strict=False)
             
             # Pydanticバリデーション前にデータ補正 (JSON文字列化)
             if 'mc_profile' in data_dict:
                  if isinstance(data_dict['mc_profile'].get('pronouns'), dict):
-                      data_dict['mc_profile']['pronouns'] = json.dumps(data_dict['mc_profile']['pronouns'], ensure_ascii=False)
+                       data_dict['mc_profile']['pronouns'] = json.dumps(data_dict['mc_profile']['pronouns'], ensure_ascii=False)
                  if isinstance(data_dict['mc_profile'].get('keyword_dictionary'), dict):
-                      data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                       data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
                  if isinstance(data_dict['mc_profile'].get('relations'), dict):
-                      data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
+                       data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
 
             return NovelStructure.model_validate(data_dict) # Validation here
         except Exception as e:
@@ -1103,10 +1124,16 @@ class UltraEngine:
             )
             # テキストパース処理
             text = res.text.strip()
-            if text.startswith("```json"): text = text[7:]
-            elif text.startswith("```"): text = text[3:]
-            if text.endswith("```"): text = text[:-3]
-            return json.loads(text.strip())
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                text = match.group(1)
+
+            try:
+                return json.loads(text, strict=False)
+            except json.JSONDecodeError:
+                # 改行・タブ以外の制御文字を削除
+                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+                return json.loads(text, strict=False)
         except Exception as e:
             print(f"Regenerate Plots Error: {e}")
             return None
@@ -1227,10 +1254,32 @@ class UltraEngine:
                         )
                         
                         text_content = res.text.strip()
-                        if text_content.startswith("```json"): text_content = text_content[7:]
-                        elif text_content.startswith("```"): text_content = text_content[3:]
-                        if text_content.endswith("```"): text_content = text_content[:-3]
-                        ep_data = json.loads(text_content.strip())
+                        if not text_content:
+                            raise ValueError("No text content returned from API")
+
+                        # 1. Regex to extract JSON block (Fixing 'Expecting value')
+                        json_match = re.search(r'(\{.*\})', text_content, re.DOTALL)
+                        if json_match:
+                            text_content = json_match.group(1)
+                        
+                        # 2. Control Character Handling (Fixing 'Invalid control character')
+                        # Using strict=False in json.loads helps with some issues
+                        try:
+                            ep_data = json.loads(text_content, strict=False)
+                        except json.JSONDecodeError:
+                            # Fallback: remove non-printable control characters except newline(0x0a) and tab(0x09)
+                            # Note: This is a last resort as it might affect formatting
+                            text_content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text_content)
+                            ep_data = json.loads(text_content, strict=False)
+                        
+                        # 3. WorldState Validation Fix (Fixing '1 validation error for WorldState')
+                        # Ensure fields expected to be strings are strings
+                        if 'next_world_state' in ep_data:
+                            nw = ep_data['next_world_state']
+                            if isinstance(nw.get('settings'), (dict, list)):
+                                nw['settings'] = json.dumps(nw['settings'], ensure_ascii=False)
+                            if isinstance(nw.get('dependency_graph'), (dict, list)):
+                                nw['dependency_graph'] = json.dumps(nw['dependency_graph'], ensure_ascii=False)
                         
                         # 総合検閲エンジンによる評価
                         qa_report = await self.qa_engine.evaluate(ep_data['content'], bible_manager)
