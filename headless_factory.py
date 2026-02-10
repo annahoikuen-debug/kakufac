@@ -202,7 +202,8 @@ class Phase2Structure(BaseModel):
     plots: List[PlotEpisode]
 
 class WorldState(BaseModel):
-    settings: str = Field(..., description="JSON string representing all world settings (Merged Immutable/Mutable)")
+    # 修正: settings と dependency_graph にデフォルト値を設定し、AIが省略してもエラーにならないようにする
+    settings: str = Field(default="{}", description="JSON string representing all world settings (Merged Immutable/Mutable)")
     revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
     revealed_mysteries: List[str] = Field(default_factory=list, description="解明済みの伏線リスト")
     pending_foreshadowing: List[str] = Field(default_factory=list, description="未回収の伏線リスト")
@@ -1095,7 +1096,7 @@ class UltraEngine:
         final_data = data.copy()
         final_data.update(normalized_data)
 
-        # 5. WorldState固有の修正: Dict -> JSON String への強制変換
+        # 5. WorldState固有の修正: Dict -> JSON String への強制変換 + 必須項目の補完
         if 'next_world_state' in final_data:
             ws = final_data['next_world_state']
             if isinstance(ws, dict):
@@ -1105,13 +1106,18 @@ class UltraEngine:
                     clean_k = re.sub(r'[^a-zA-Z0-9_]', '', k).lower()
                     ws_normalized[clean_k] = v
                 
+                # キーのゆらぎ吸収 (graphresolutionplan -> dependency_graph)
+                keys_to_check = list(ws_normalized.keys())
+                for k in keys_to_check:
+                    if 'dependency' in k and 'graph' in k:
+                        if k != 'dependency_graph':
+                             ws_normalized['dependency_graph'] = ws_normalized.pop(k)
+                
                 # settingsなどが辞書なら文字列化
                 for field in ['settings', 'dependency_graph']:
-                    # normalized key check (dependencygraph vs dependency_graph logic handled by regex above usually strips _)
-                    # Pydantic expects 'dependency_graph', so we need to be careful.
-                    # Let's map strict keys if possible.
-                    if 'dependencygraph' in ws_normalized:
-                        ws_normalized['dependency_graph'] = ws_normalized.pop('dependencygraph')
+                    # 必須項目の欠損対策: 存在しなければデフォルト値を入れる
+                    if field not in ws_normalized:
+                        ws_normalized[field] = "{}"
                     
                     if field in ws_normalized and isinstance(ws_normalized[field], (dict, list)):
                         ws_normalized[field] = json.dumps(ws_normalized[field], ensure_ascii=False)
@@ -1344,7 +1350,7 @@ class UltraEngine:
                         
                         # リライト判定ループ
                         target_cliffhanger = 90 if 1 <= ep_num <= 5 else 80
-                        target_appeal = 80 if 1 <= ep_num <= 5 else 70
+                        target_appeal = 90 if 1 <= ep_num <= 5 else 70
                         
                         if (qa_report.cliffhanger_score < target_cliffhanger or qa_report.kakuyomu_appeal_score < target_appeal) and retry_count < max_retries:
                             print(f"⚠️ Low QA Score (Cliffhanger: {qa_report.cliffhanger_score}, Appeal: {qa_report.kakuyomu_appeal_score}). Retrying...")
