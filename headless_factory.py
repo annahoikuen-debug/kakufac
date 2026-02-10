@@ -12,7 +12,7 @@ import math
 import asyncio
 from typing import List, Optional, Dict, Any, Type, Union
 from enum import Enum
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, ConfigDict
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
@@ -129,6 +129,11 @@ STYLE_DEFINITIONS = {
 # 廃止③ レガシー構造の除去 (NovelStructure/MarketingAssets)
 # 統合④ プロットモデルの単一化 (PlotScene廃止, PlotEpisode修正)
 
+class Scene(BaseModel):
+    location: str
+    action: str
+    dialogue_point: str
+
 class PlotEpisode(BaseModel):
     ep_num: int
     title: str
@@ -139,7 +144,7 @@ class PlotEpisode(BaseModel):
     tension: int
     stress: int = Field(default=0, description="読者のストレス度(0-100)。理不尽な展開やヘイト溜め。")
     catharsis: int = Field(default=0, description="カタルシス度(0-100)。ざまぁ、逆転、無双。")
-    scenes: List[Dict[str, str]] = Field(..., description="各シーンの定義。キーは 'location', 'action', 'dialogue_point' を含むこと。")
+    scenes: List[Scene] = Field(..., description="各シーンの定義。")
 
 # 改善⑨ 動的関係性マップの導入
 class CharacterRegistry(BaseModel):
@@ -338,11 +343,11 @@ class TextFormatter:
                 if char in '一二三四五六七八九':
                     converted_chars.append(char.translate(table))
                 elif char in '十百千万億兆':
-                     # 単位として残すか、0に変換するか。
-                     # プロンプト要件は「算用数字に置換」
-                     # ここでは「1万」のように単位を残すのがWeb小説流儀だが、
-                     # 「十、百、千、万」を対象とあるため、アラビア数字展開を試みる
-                     pass
+                      # 単位として残すか、0に変換するか。
+                      # プロンプト要件は「算用数字に置換」
+                      # ここでは「1万」のように単位を残すのがWeb小説流儀だが、
+                      # 「十、百、千、万」を対象とあるため、アラビア数字展開を試みる
+                      pass
             
             # 正規表現による強力な置換（ルールベース）
             s_conv = s.translate(table)
@@ -935,11 +940,11 @@ class UltraEngine:
             # Pydanticバリデーション前にデータ補正 (JSON文字列化)
             if 'mc_profile' in data:
                  if isinstance(data['mc_profile'].get('pronouns'), dict):
-                      data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
+                       data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
                  if isinstance(data['mc_profile'].get('keyword_dictionary'), dict):
-                      data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                       data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
                  if isinstance(data['mc_profile'].get('relations'), dict):
-                      data['mc_profile']['relations'] = json.dumps(data['mc_profile']['relations'], ensure_ascii=False)
+                       data['mc_profile']['relations'] = json.dumps(data['mc_profile']['relations'], ensure_ascii=False)
 
             return data
         except Exception as e:
@@ -1541,5 +1546,4 @@ async def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
-
     asyncio.run(main())
