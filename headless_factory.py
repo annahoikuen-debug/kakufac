@@ -736,17 +736,22 @@ JSON形式で以下のキーを含めて出力せよ:
 - hook_text: 読者を惹きつける「一行あらすじ」
 - style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
 """
+        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
         try:
             res = await self.engine._generate_with_retry(
                 model=MODEL_MARKETING,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=TrendSeed
+                    response_mime_type="application/json"
                 )
             )
-            seed = json.loads(res.text)
-            print(f"★ Trend Detected: {seed['genre']} - {seed['hook_text']}")
+            # テキストパース処理の強化
+            text = res.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            elif text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            seed = json.loads(text.strip())
+            print(f"★ Trend Detected: {seed.get('genre', 'Unknown')} - {seed.get('hook_text', 'No hook')}")
             return seed
         except Exception as e:
             print(f"Trend Analysis Failed: {e}. Fallback to default.")
@@ -799,8 +804,9 @@ JSON出力形式:
             qa_config = {}
             if "gemini" in MODEL_PRO.lower() and "gemma" not in MODEL_PRO.lower():
                 qa_config["response_mime_type"] = "application/json"
-                qa_config["response_schema"] = QualityReport
-
+            
+            # 修正: response_schemaは使用せず手動パース
+            
             res = await self.engine._generate_with_retry(
                 model=MODEL_PRO, # Gemma-3-27b
                 contents=prompt,
@@ -929,29 +935,37 @@ class UltraEngine:
 作品設定、前半パートである**第1話〜第25話**の詳細プロット、マーケティングアセットを作成せよ。
 前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
 **重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
+
+JSON形式で出力せよ。
 """
+        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
         try:
             res = await self._generate_with_retry(
                 model=MODEL_ULTRALONG,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=NovelStructure,
+                    # response_schema=NovelStructure, # Removed to avoid additionalProperties error
                     safety_settings=self.safety_settings
                 )
             )
-            data = json.loads(res.text)
+            # テキストパース処理
+            text = res.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            elif text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            data_dict = json.loads(text.strip())
             
             # Pydanticバリデーション前にデータ補正 (JSON文字列化)
-            if 'mc_profile' in data:
-                 if isinstance(data['mc_profile'].get('pronouns'), dict):
-                      data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
-                 if isinstance(data['mc_profile'].get('keyword_dictionary'), dict):
-                      data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
-                 if isinstance(data['mc_profile'].get('relations'), dict):
-                      data['mc_profile']['relations'] = json.dumps(data['mc_profile']['relations'], ensure_ascii=False)
+            if 'mc_profile' in data_dict:
+                 if isinstance(data_dict['mc_profile'].get('pronouns'), dict):
+                      data_dict['mc_profile']['pronouns'] = json.dumps(data_dict['mc_profile']['pronouns'], ensure_ascii=False)
+                 if isinstance(data_dict['mc_profile'].get('keyword_dictionary'), dict):
+                      data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                 if isinstance(data_dict['mc_profile'].get('relations'), dict):
+                      data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
 
-            return data
+            return NovelStructure.model_validate(data_dict) # Validation here
         except Exception as e:
             print(f"Plot Phase 1 Error: {e}")
             return None
@@ -980,18 +994,26 @@ class UltraEngine:
 【Task】
 後半の展開を劇的に、かつ整合性が取れるように作成せよ。
 **重要: 各エピソードは「Next Hook」で終わらせること。**
+
+JSON形式で出力せよ。
 """
+        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
         try:
             res = await self._generate_with_retry(
                 model=MODEL_ULTRALONG,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=Phase2Structure,
+                    # response_schema=Phase2Structure, # Removed
                     safety_settings=self.safety_settings
                 )
             )
-            return json.loads(res.text)
+            # テキストパース処理
+            text = res.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            elif text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            return json.loads(text.strip())
         except Exception as e:
             print(f"Regenerate Plots Error: {e}")
             return None
@@ -1111,7 +1133,7 @@ class UltraEngine:
                         # 修正: Gemmaモデル回避。Gemini系のみJSONモード有効化
                         if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
                             gen_config_args["response_mime_type"] = "application/json"
-                            gen_config_args["response_schema"] = EpisodeResponse
+                            # response_schema は使用しない
                         
                         res = await self.engine._generate_with_retry(
                             model=current_model, 
