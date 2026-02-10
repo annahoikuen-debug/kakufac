@@ -28,11 +28,11 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-3-flash-preview"
+MODEL_ULTRALONG = "gemini-2.5-flash"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
 MODEL_MICRO = "gemma-3-4b-it" # 廃止予定だが変数として残す
-MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05"
+MODEL_MARKETING = "gemini-2.5-flash-lite"
 
 DB_FILE = "factory_run.db"
 
@@ -1550,4 +1550,5 @@ async def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
+
     asyncio.run(main())
