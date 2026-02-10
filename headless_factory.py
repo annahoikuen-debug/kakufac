@@ -12,7 +12,7 @@ import math
 import asyncio
 from typing import List, Optional, Dict, Any, Type, Union
 from enum import Enum
-from pydantic import BaseModel, Field, ValidationError, ConfigDict
+from pydantic import BaseModel, Field, ValidationError
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
@@ -28,7 +28,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-2.5-flash"
+MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
 MODEL_MICRO = "gemma-3-4b-it" # 廃止予定だが変数として残す
@@ -129,11 +129,6 @@ STYLE_DEFINITIONS = {
 # 廃止③ レガシー構造の除去 (NovelStructure/MarketingAssets)
 # 統合④ プロットモデルの単一化 (PlotScene廃止, PlotEpisode修正)
 
-class Scene(BaseModel):
-    location: str
-    action: str
-    dialogue_point: str
-
 class PlotEpisode(BaseModel):
     ep_num: int
     title: str
@@ -144,7 +139,7 @@ class PlotEpisode(BaseModel):
     tension: int
     stress: int = Field(default=0, description="読者のストレス度(0-100)。理不尽な展開やヘイト溜め。")
     catharsis: int = Field(default=0, description="カタルシス度(0-100)。ざまぁ、逆転、無双。")
-    scenes: List[Scene] = Field(..., description="各シーンの定義。")
+    scenes: List[Dict[str, str]] = Field(..., description="各シーンの定義。キーは 'location', 'action', 'dialogue_point' を含むこと。")
 
 # 改善⑨ 動的関係性マップの導入
 class CharacterRegistry(BaseModel):
@@ -343,11 +338,11 @@ class TextFormatter:
                 if char in '一二三四五六七八九':
                     converted_chars.append(char.translate(table))
                 elif char in '十百千万億兆':
-                      # 単位として残すか、0に変換するか。
-                      # プロンプト要件は「算用数字に置換」
-                      # ここでは「1万」のように単位を残すのがWeb小説流儀だが、
-                      # 「十、百、千、万」を対象とあるため、アラビア数字展開を試みる
-                      pass
+                     # 単位として残すか、0に変換するか。
+                     # プロンプト要件は「算用数字に置換」
+                     # ここでは「1万」のように単位を残すのがWeb小説流儀だが、
+                     # 「十、百、千、万」を対象とあるため、アラビア数字展開を試みる
+                     pass
             
             # 正規表現による強力な置換（ルールベース）
             s_conv = s.translate(table)
@@ -800,15 +795,25 @@ JSON出力形式:
 }}
 """
         try:
+            # 修正: Gemmaモデルの場合はMIMEタイプを指定しない
+            qa_config = {}
+            if "gemini" in MODEL_PRO.lower() and "gemma" not in MODEL_PRO.lower():
+                qa_config["response_mime_type"] = "application/json"
+                qa_config["response_schema"] = QualityReport
+
             res = await self.engine._generate_with_retry(
                 model=MODEL_PRO, # Gemma-3-27b
                 contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=QualityReport
-                )
+                config=types.GenerateContentConfig(**qa_config)
             )
-            data = json.loads(res.text)
+            
+            # 修正: テキストパース処理の強化
+            text = res.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            elif text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            data = json.loads(text.strip())
+            
             return QualityReport.model_validate(data)
             
         except Exception as e:
@@ -940,11 +945,11 @@ class UltraEngine:
             # Pydanticバリデーション前にデータ補正 (JSON文字列化)
             if 'mc_profile' in data:
                  if isinstance(data['mc_profile'].get('pronouns'), dict):
-                       data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
+                      data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
                  if isinstance(data['mc_profile'].get('keyword_dictionary'), dict):
-                       data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                      data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
                  if isinstance(data['mc_profile'].get('relations'), dict):
-                       data['mc_profile']['relations'] = json.dumps(data['mc_profile']['relations'], ensure_ascii=False)
+                      data['mc_profile']['relations'] = json.dumps(data['mc_profile']['relations'], ensure_ascii=False)
 
             return data
         except Exception as e:
@@ -1103,11 +1108,12 @@ class UltraEngine:
 """
                     try:
                         gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
-                        if "gemini" in current_model.lower() or "gemma" in current_model.lower():
+                        # 修正: Gemmaモデル回避。Gemini系のみJSONモード有効化
+                        if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
                             gen_config_args["response_mime_type"] = "application/json"
                             gen_config_args["response_schema"] = EpisodeResponse
                         
-                        res = await self._generate_with_retry(
+                        res = await self.engine._generate_with_retry(
                             model=current_model, 
                             contents=write_prompt,
                             config=types.GenerateContentConfig(**gen_config_args)
