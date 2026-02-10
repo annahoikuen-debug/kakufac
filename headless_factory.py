@@ -736,16 +736,16 @@ JSON形式で以下のキーを含めて出力せよ:
 - hook_text: 読者を惹きつける「一行あらすじ」
 - style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
 """
-        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
         try:
             res = await self.engine._generate_with_retry(
                 model=MODEL_MARKETING,
                 contents=prompt,
                 config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
+                    response_mime_type="application/json",
+                    response_schema=TrendSeed
                 )
             )
-            # テキストパース処理の強化
+            # テキストパース処理
             text = res.text.strip()
             if text.startswith("```json"): text = text[7:]
             elif text.startswith("```"): text = text[3:]
@@ -804,9 +804,8 @@ JSON出力形式:
             qa_config = {}
             if "gemini" in MODEL_PRO.lower() and "gemma" not in MODEL_PRO.lower():
                 qa_config["response_mime_type"] = "application/json"
-            
-            # 修正: response_schemaは使用せず手動パース
-            
+                qa_config["response_schema"] = QualityReport
+
             res = await self.engine._generate_with_retry(
                 model=MODEL_PRO, # Gemma-3-27b
                 contents=prompt,
@@ -938,18 +937,21 @@ class UltraEngine:
 
 JSON形式で出力せよ。
 """
-        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
+        # 修正: response_schemaを使用しつつ、Pydanticモデルの`extra="forbid"`を削除したためエラーは出ないはず
+        # 万全を期して、JSONモード + response_schema を指定する
         try:
             res = await self._generate_with_retry(
                 model=MODEL_ULTRALONG,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    # response_schema=NovelStructure, # Removed to avoid additionalProperties error
+                    response_schema=NovelStructure, # Pydantic Model (no extra="forbid")
                     safety_settings=self.safety_settings
                 )
             )
-            # テキストパース処理
+            
+            # response_schemaを使っている場合、SDKがよしなにパースしてくれている可能性があるが
+            #念のためテキストからロードする
             text = res.text.strip()
             if text.startswith("```json"): text = text[7:]
             elif text.startswith("```"): text = text[3:]
@@ -997,14 +999,14 @@ JSON形式で出力せよ。
 
 JSON形式で出力せよ。
 """
-        # 修正: response_schemaを使用せず、JSONモードのみ指定して手動パースする
+        # 修正: response_schemaを使用
         try:
             res = await self._generate_with_retry(
                 model=MODEL_ULTRALONG,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    # response_schema=Phase2Structure, # Removed
+                    response_schema=Phase2Structure, # Pydantic Model (no extra="forbid")
                     safety_settings=self.safety_settings
                 )
             )
