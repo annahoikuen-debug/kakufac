@@ -32,7 +32,7 @@ MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
 MODEL_MICRO = "gemma-3-4b-it" # 廃止予定だが変数として残す
-MODEL_MARKETING = "gemini-2.5-flash-lite"
+MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05"
 
 DB_FILE = "factory_run.db"
 
@@ -130,6 +130,7 @@ STYLE_DEFINITIONS = {
 # 統合④ プロットモデルの単一化 (PlotScene廃止, PlotEpisode修正)
 
 class PlotEpisode(BaseModel):
+    model_config = {"extra": "forbid"}
     ep_num: int
     title: str
     setup: str
@@ -143,6 +144,7 @@ class PlotEpisode(BaseModel):
 
 # 改善⑨ 動的関係性マップの導入
 class CharacterRegistry(BaseModel):
+    model_config = {"extra": "forbid"}
     name: str
     tone: str
     personality: str
@@ -180,6 +182,7 @@ class CharacterRegistry(BaseModel):
 
 # 統合⑥ 総合検閲エンジンの構築 (EvaluationResult -> QualityReport)
 class QualityReport(BaseModel):
+    model_config = {"extra": "forbid"}
     is_consistent: bool = Field(..., description="設定矛盾がないか")
     fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
     consistency_score: int = Field(..., description="整合性スコア(0-100)")
@@ -190,11 +193,13 @@ class QualityReport(BaseModel):
     improvement_advice: str = Field(..., description="改善アドバイス")
 
 class MarketingAssets(BaseModel):
+    model_config = {"extra": "forbid"}
     catchcopies: List[str] = Field(..., description="読者を惹きつけるキャッチコピー案（3つ以上）")
     tags: List[str] = Field(..., description="検索用タグ（5つ以上）")
     # legacy fields removed
 
 class NovelStructure(BaseModel):
+    model_config = {"extra": "forbid"}
     title: str
     concept: str
     synopsis: str
@@ -204,9 +209,11 @@ class NovelStructure(BaseModel):
     # legacy fields removed
 
 class Phase2Structure(BaseModel):
+    model_config = {"extra": "forbid"}
     plots: List[PlotEpisode]
 
 class WorldState(BaseModel):
+    model_config = {"extra": "forbid"}
     settings: str = Field(..., description="JSON string representing all world settings (Merged Immutable/Mutable)")
     revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
     revealed_mysteries: List[str] = Field(default_factory=list, description="解明済みの伏線リスト")
@@ -214,12 +221,14 @@ class WorldState(BaseModel):
     dependency_graph: str = Field(default="{}", description="JSON mapping of foreshadowing ID to target ep_num for resolution")
 
 class EpisodeResponse(BaseModel):
+    model_config = {"extra": "forbid"}
     content: str = Field(..., description="エピソード本文 (1500-2000文字)")
     summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
     next_world_state: WorldState = Field(..., description="この話の結果更新された世界状態")
     # cliffhanger_self_score removed/merged into QualityReport check
 
 class TrendSeed(BaseModel):
+    model_config = {"extra": "forbid"}
     genre: str
     keywords: str
     personality: str
@@ -1541,5 +1550,4 @@ async def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
-
     asyncio.run(main())
