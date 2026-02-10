@@ -865,7 +865,8 @@ class TrendAnalyst:
             )
             # テキストパース処理
             text = res.text.strip()
-            # 抽出強化: 正規表現でJSON部分を取り出す
+            
+            # Robust extraction using regex
             match = re.search(r'(\{.*\})', text, re.DOTALL)
             if match:
                 text = match.group(1)
@@ -916,7 +917,8 @@ class QualityAssuranceEngine:
             
             # テキストパース処理
             text = res.text.strip()
-            # 抽出強化
+            
+            # Robust extraction
             match = re.search(r'(\{.*\})', text, re.DOTALL)
             if match:
                 text = match.group(1)
@@ -1034,6 +1036,61 @@ class UltraEngine:
                 await asyncio.sleep(delay)
                 retries += 1
 
+    def _parse_json_response(self, text: str) -> Dict[str, Any]:
+        """
+        AIの出力からJSONを堅牢に抽出・正規化するヘルパー関数
+        """
+        # 1. 最小限のクリーニング
+        text = text.strip()
+        
+        # 2. 正規表現で最初 '{' から 最後の '}' までを抽出（貪欲マッチ）
+        # これにより、前後の挨拶文やMarkdown記号を無視できる
+        match = re.search(r'(\{.*\})', text, re.DOTALL)
+        if match:
+            text = match.group(1)
+        else:
+            # マッチしない場合、元のテキストで勝負（ただしMarkdown記号は消す）
+            text = re.sub(r'```json', '', text)
+            text = re.sub(r'```', '', text)
+
+        # 3. 制御文字の削除（改行・タブ以外）
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+
+        try:
+            # 4. JSONロード（strict=Falseで許容度を上げる）
+            data = json.loads(text, strict=False)
+        except json.JSONDecodeError as e:
+            print(f"JSON Parse Error: {e} \nText snippet: {text[:100]}...")
+            raise e
+
+        # 5. キーの正規化（大文字キーを小文字に変換してマージ）
+        # 例: SETTINGS -> settings, Next_World_State -> next_world_state
+        normalized_data = {}
+        for k, v in data.items():
+            normalized_data[k.lower()] = v
+        
+        # 元のデータも保持（Pydanticが正しくキー認識できる場合に備えて）
+        # ただし小文字キーを優先する
+        final_data = data.copy()
+        final_data.update(normalized_data)
+
+        # 6. WorldState固有の修正: Dict -> JSON String への強制変換
+        # next_world_state の中身が Dict なら String に戻す
+        if 'next_world_state' in final_data:
+            ws = final_data['next_world_state']
+            if isinstance(ws, dict):
+                # 再帰的にキーを小文字化
+                ws_lower = {k.lower(): v for k, v in ws.items()}
+                
+                # settingsなどが辞書なら文字列化
+                for field in ['settings', 'dependency_graph']:
+                    if field in ws_lower and isinstance(ws_lower[field], (dict, list)):
+                        ws_lower[field] = json.dumps(ws_lower[field], ensure_ascii=False)
+                
+                final_data['next_world_state'] = ws_lower
+
+        return final_data
+
     # ---------------------------------------------------------
     # Core Logic
     # ---------------------------------------------------------
@@ -1064,17 +1121,14 @@ class UltraEngine:
                     safety_settings=self.safety_settings
                 )
             )
-            # テキストパース処理
-            text = res.text.strip()
-            # 抽出強化
-            match = re.search(r'(\{.*\})', text, re.DOTALL)
-            if match:
-                text = match.group(1)
-            
+            text_content = res.text.strip()
+            # Use robust parser logic but inline simplified for structure
             try:
-                data_dict = json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                # 改行・タブ以外の制御文字を削除
+                data_dict = self._parse_json_response(text_content)
+            except Exception:
+                # Fallback simplistic parsing if robust fails for structure specific reasons
+                match = re.search(r'(\{.*\})', text_content, re.DOTALL)
+                text = match.group(1) if match else text_content
                 text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
                 data_dict = json.loads(text, strict=False)
             
@@ -1122,18 +1176,15 @@ class UltraEngine:
                     safety_settings=self.safety_settings
                 )
             )
-            # テキストパース処理
-            text = res.text.strip()
-            match = re.search(r'(\{.*\})', text, re.DOTALL)
-            if match:
-                text = match.group(1)
-
+            text_content = res.text.strip()
             try:
-                return json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                # 改行・タブ以外の制御文字を削除
-                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                return json.loads(text, strict=False)
+                return self._parse_json_response(text_content)
+            except Exception:
+                 match = re.search(r'(\{.*\})', text_content, re.DOTALL)
+                 text = match.group(1) if match else text_content
+                 text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+                 return json.loads(text, strict=False)
+
         except Exception as e:
             print(f"Regenerate Plots Error: {e}")
             return None
@@ -1256,30 +1307,14 @@ class UltraEngine:
                         text_content = res.text.strip()
                         if not text_content:
                             raise ValueError("No text content returned from API")
-
-                        # 1. Regex to extract JSON block (Fixing 'Expecting value')
-                        json_match = re.search(r'(\{.*\})', text_content, re.DOTALL)
-                        if json_match:
-                            text_content = json_match.group(1)
                         
-                        # 2. Control Character Handling (Fixing 'Invalid control character')
-                        # Using strict=False in json.loads helps with some issues
+                        # ★ここが変更点: 堅牢なパーサーを呼び出す
                         try:
-                            ep_data = json.loads(text_content, strict=False)
-                        except json.JSONDecodeError:
-                            # Fallback: remove non-printable control characters except newline(0x0a) and tab(0x09)
-                            # Note: This is a last resort as it might affect formatting
-                            text_content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text_content)
-                            ep_data = json.loads(text_content, strict=False)
-                        
-                        # 3. WorldState Validation Fix (Fixing '1 validation error for WorldState')
-                        # Ensure fields expected to be strings are strings
-                        if 'next_world_state' in ep_data:
-                            nw = ep_data['next_world_state']
-                            if isinstance(nw.get('settings'), (dict, list)):
-                                nw['settings'] = json.dumps(nw['settings'], ensure_ascii=False)
-                            if isinstance(nw.get('dependency_graph'), (dict, list)):
-                                nw['dependency_graph'] = json.dumps(nw['dependency_graph'], ensure_ascii=False)
+                            ep_data = self._parse_json_response(text_content)
+                        except Exception as parse_err:
+                            print(f"Parse failed, retrying... {parse_err}")
+                            retry_count += 1
+                            continue
                         
                         # 総合検閲エンジンによる評価
                         qa_report = await self.qa_engine.evaluate(ep_data['content'], bible_manager)
