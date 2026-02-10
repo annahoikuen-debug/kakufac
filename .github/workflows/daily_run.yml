@@ -20,7 +20,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 65 # 暴走防止（20分で強制停止）
+    timeout-minutes: 120 # 暴走防止（20分で強制停止）
     
     steps:
       - uses: actions/checkout@v4
