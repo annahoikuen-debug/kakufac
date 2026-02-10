@@ -331,9 +331,9 @@ JSON出力形式:
 {{
     "is_consistent": true/false,
     "fatal_errors": ["..."],
-    "consistency_score": 85,
-    "cliffhanger_score": 90,
-    "kakuyomu_appeal_score": 88,
+    "consistency_score": 80,
+    "cliffhanger_score": 80,
+    "kakuyomu_appeal_score": 70,
     "stress_level": 20,
     "catharsis_level": 80,
     "improvement_advice": "具体的な改善指示...",
@@ -1349,8 +1349,8 @@ class UltraEngine:
                         qa_report = await self.qa_engine.evaluate(ep_data['content'], bible_manager)
                         
                         # リライト判定ループ
-                        target_cliffhanger = 90 if 1 <= ep_num <= 5 else 80
-                        target_appeal = 90 if 1 <= ep_num <= 5 else 70
+                        target_cliffhanger = 88 if 1 <= ep_num <= 5 else 80
+                        target_appeal = 80 if 1 <= ep_num <= 5 else 70
                         
                         if (qa_report.cliffhanger_score < target_cliffhanger or qa_report.kakuyomu_appeal_score < target_appeal) and retry_count < max_retries:
                             print(f"⚠️ Low QA Score (Cliffhanger: {qa_report.cliffhanger_score}, Appeal: {qa_report.kakuyomu_appeal_score}). Retrying...")
@@ -1484,7 +1484,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
 
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
     
-    semaphore = asyncio.Semaphore(3) 
+    semaphore = asyncio.Semaphore(2) 
 
     tasks = []
     print(f"Starting Machine-Gun Parallel Writing (Ep {start_ep} - {end_ep})...")
