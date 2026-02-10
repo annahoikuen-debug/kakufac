@@ -28,7 +28,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-2.5-flash"
+MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
 MODEL_MARKETING = "gemini-2.5-flash-lite"
@@ -1344,7 +1344,7 @@ class UltraEngine:
                         
                         # リライト判定ループ
                         target_cliffhanger = 90 if 1 <= ep_num <= 5 else 80
-                        target_appeal = 90 if 1 <= ep_num <= 5 else 70
+                        target_appeal = 80 if 1 <= ep_num <= 5 else 70
                         
                         if (qa_report.cliffhanger_score < target_cliffhanger or qa_report.kakuyomu_appeal_score < target_appeal) and retry_count < max_retries:
                             print(f"⚠️ Low QA Score (Cliffhanger: {qa_report.cliffhanger_score}, Appeal: {qa_report.kakuyomu_appeal_score}). Retrying...")
@@ -1687,5 +1687,4 @@ async def main():
         traceback.print_exc()
 
 if __name__ == "__main__":
-
     asyncio.run(main())
