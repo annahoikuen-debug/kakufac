@@ -1039,55 +1039,84 @@ class UltraEngine:
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
         """
         AIの出力からJSONを堅牢に抽出・正規化するヘルパー関数
+        エラー救済措置を含む
         """
-        # 1. 最小限のクリーニング
+        # 1. Markdownの削除
+        text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
+        text = re.sub(r'```$', '', text, flags=re.MULTILINE)
         text = text.strip()
-        
-        # 2. 正規表現で最初 '{' から 最後の '}' までを抽出（貪欲マッチ）
-        # これにより、前後の挨拶文やMarkdown記号を無視できる
-        match = re.search(r'(\{.*\})', text, re.DOTALL)
-        if match:
-            text = match.group(1)
-        else:
-            # マッチしない場合、元のテキストで勝負（ただしMarkdown記号は消す）
-            text = re.sub(r'```json', '', text)
-            text = re.sub(r'```', '', text)
 
-        # 3. 制御文字の削除（改行・タブ以外）
+        # 2. 制御文字の削除（改行・タブ以外）
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
 
-        try:
-            # 4. JSONロード（strict=Falseで許容度を上げる）
-            data = json.loads(text, strict=False)
-        except json.JSONDecodeError as e:
-            print(f"JSON Parse Error: {e} \nText snippet: {text[:100]}...")
-            raise e
+        data = None
 
-        # 5. キーの正規化（大文字キーを小文字に変換してマージ）
-        # 例: SETTINGS -> settings, Next_World_State -> next_world_state
+        # Try Method A: Direct Parse
+        try:
+            data = json.loads(text, strict=False)
+        except:
+            # Try Method B: Regex Extraction
+            match = re.search(r'(\{.*\})', text, re.DOTALL)
+            if match:
+                try:
+                    data = json.loads(match.group(1), strict=False)
+                except:
+                    pass
+        
+        # 3. NOVEL FALLBACK: JSONパースに失敗したが、テキストが小説（会話文など）を含んでいる場合
+        if data is None:
+            if "「" in text or "」" in text or len(text) > 100:
+                print("⚠️ Warning: JSON parse failed, but novel text detected. Using RAW TEXT fallback.")
+                data = {
+                    "content": text,
+                    "summary": text[:200] + "...", # 簡易要約
+                    "next_world_state": {
+                        "settings": "{}",
+                        "revealed": [],
+                        "revealed_mysteries": [],
+                        "pending_foreshadowing": [],
+                        "dependency_graph": "{}"
+                    }
+                }
+            else:
+                # 救済不可能
+                raise ValueError(f"Failed to parse JSON and text does not look like a novel snippet. Length: {len(text)}")
+
+        # 4. キーの正規化 (Pydantic対応)
+        # [settings] -> settings のように装飾を削除
         normalized_data = {}
         for k, v in data.items():
-            normalized_data[k.lower()] = v
+            # アルファベットとアンダースコア以外を削除して小文字化
+            clean_k = re.sub(r'[^a-zA-Z0-9_]', '', k).lower()
+            normalized_data[clean_k] = v
         
-        # 元のデータも保持（Pydanticが正しくキー認識できる場合に備えて）
-        # ただし小文字キーを優先する
+        # 元データとマージ（正規化キーを優先）
         final_data = data.copy()
         final_data.update(normalized_data)
 
-        # 6. WorldState固有の修正: Dict -> JSON String への強制変換
-        # next_world_state の中身が Dict なら String に戻す
+        # 5. WorldState固有の修正: Dict -> JSON String への強制変換
         if 'next_world_state' in final_data:
             ws = final_data['next_world_state']
             if isinstance(ws, dict):
-                # 再帰的にキーを小文字化
-                ws_lower = {k.lower(): v for k, v in ws.items()}
+                ws_normalized = {}
+                for k, v in ws.items():
+                    # WorldState内部のキーも正規化
+                    clean_k = re.sub(r'[^a-zA-Z0-9_]', '', k).lower()
+                    ws_normalized[clean_k] = v
                 
                 # settingsなどが辞書なら文字列化
                 for field in ['settings', 'dependency_graph']:
-                    if field in ws_lower and isinstance(ws_lower[field], (dict, list)):
-                        ws_lower[field] = json.dumps(ws_lower[field], ensure_ascii=False)
+                    # normalized key check (dependencygraph vs dependency_graph logic handled by regex above usually strips _)
+                    # Pydantic expects 'dependency_graph', so we need to be careful.
+                    # Let's map strict keys if possible.
+                    if 'dependencygraph' in ws_normalized:
+                        ws_normalized['dependency_graph'] = ws_normalized.pop('dependencygraph')
+                    
+                    if field in ws_normalized and isinstance(ws_normalized[field], (dict, list)):
+                        ws_normalized[field] = json.dumps(ws_normalized[field], ensure_ascii=False)
                 
-                final_data['next_world_state'] = ws_lower
+                final_data['next_world_state'] = ws_normalized
 
         return final_data
 
@@ -1122,7 +1151,7 @@ class UltraEngine:
                 )
             )
             text_content = res.text.strip()
-            # Use robust parser logic but inline simplified for structure
+            
             try:
                 data_dict = self._parse_json_response(text_content)
             except Exception:
@@ -1177,13 +1206,7 @@ class UltraEngine:
                 )
             )
             text_content = res.text.strip()
-            try:
-                return self._parse_json_response(text_content)
-            except Exception:
-                 match = re.search(r'(\{.*\})', text_content, re.DOTALL)
-                 text = match.group(1) if match else text_content
-                 text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                 return json.loads(text, strict=False)
+            return self._parse_json_response(text_content)
 
         except Exception as e:
             print(f"Regenerate Plots Error: {e}")
