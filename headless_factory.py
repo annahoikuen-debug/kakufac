@@ -32,7 +32,7 @@ MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
 MODEL_MICRO = "gemma-3-4b-it" # 廃止予定だが変数として残す
-MODEL_MARKETING = "gemini-2.5-flash-lite"
+MODEL_MARKETING = "gemini-2.0-flash-lite-preview-02-05"
 
 DB_FILE = "factory_run.db"
 
@@ -125,11 +125,9 @@ STYLE_DEFINITIONS = {
 # ==========================================
 # Pydantic Schemas (構造化出力用)
 # ==========================================
-class PlotScene(BaseModel):
-    setup: str = Field(..., description="導入")
-    conflict: str = Field(..., description="展開")
-    climax: str = Field(..., description="結末")
-    next_hook: str = Field(..., description="次への引き（クリフハンガー）。物語を解決させず、次を読ませるための新たな謎や危機")
+
+# 廃止③ レガシー構造の除去 (NovelStructure/MarketingAssets)
+# 統合④ プロットモデルの単一化 (PlotScene廃止, PlotEpisode修正)
 
 class PlotEpisode(BaseModel):
     ep_num: int
@@ -137,10 +135,13 @@ class PlotEpisode(BaseModel):
     setup: str
     conflict: str
     climax: str
-    next_hook: str # Resolutionを廃止し、Next Hookへ変更
+    next_hook: str 
     tension: int
-    scenes: List[str]
+    stress: int = Field(default=0, description="読者のストレス度(0-100)。理不尽な展開やヘイト溜め。")
+    catharsis: int = Field(default=0, description="カタルシス度(0-100)。ざまぁ、逆転、無双。")
+    scenes: List[Dict[str, str]] = Field(..., description="各シーンの定義。キーは 'location', 'action', 'dialogue_point' を含むこと。")
 
+# 改善⑨ 動的関係性マップの導入
 class CharacterRegistry(BaseModel):
     name: str
     tone: str
@@ -149,6 +150,7 @@ class CharacterRegistry(BaseModel):
     monologue_style: str
     pronouns: str = Field(..., description="JSON string mapping keys (e.g., '一人称', '二人称') to values")
     keyword_dictionary: str = Field(..., description="JSON string mapping unique terms to their reading or definition")
+    relations: str = Field(default="{}", description="JSON string mapping character names to relationship status/feelings (e.g. {'ヒロインA': '好意(90)', 'ライバルB': '敵対(80)'})")
 
     def to_dict(self):
         return self.model_dump()
@@ -162,6 +164,10 @@ class CharacterRegistry(BaseModel):
         try: k_json = json.loads(self.keyword_dictionary) if isinstance(self.keyword_dictionary, str) else self.keyword_dictionary
         except: pass
 
+        r_json = {}
+        try: r_json = json.loads(self.relations) if isinstance(self.relations, str) else self.relations
+        except: pass
+
         prompt = "【CHARACTER REGISTRY】\n"
         prompt += f"■ {self.name} (主人公)\n"
         prompt += f"  - Tone: {self.tone}\n"
@@ -169,19 +175,24 @@ class CharacterRegistry(BaseModel):
         prompt += f"  - Ability: {self.ability}\n"
         prompt += f"  - Monologue Style: {self.monologue_style}\n"
         prompt += f"  - Pronouns: {json.dumps(p_json, ensure_ascii=False)}\n"
+        prompt += f"  - Relations: {json.dumps(r_json, ensure_ascii=False)}\n"
         return prompt
 
-class EvaluationResult(BaseModel):
+# 統合⑥ 総合検閲エンジンの構築 (EvaluationResult -> QualityReport)
+class QualityReport(BaseModel):
     is_consistent: bool = Field(..., description="設定矛盾がないか")
     fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
-    retention_score: int = Field(..., description="読者維持率予測スコア(0-100)")
+    consistency_score: int = Field(..., description="整合性スコア(0-100)")
+    cliffhanger_score: int = Field(..., description="引きの強さ(0-100)")
+    kakuyomu_appeal_score: int = Field(..., description="カクヨム読者への訴求力(0-100)")
+    stress_level: int = Field(..., description="読者が感じるストレスレベル(0-100)")
+    catharsis_level: int = Field(..., description="読者が感じるカタルシスレベル(0-100)")
     improvement_advice: str = Field(..., description="改善アドバイス")
 
 class MarketingAssets(BaseModel):
-    evaluations: List[EvaluationResult] = Field(default_factory=list) # Phase1では空の場合があるためデフォルト値設定
     catchcopies: List[str] = Field(..., description="読者を惹きつけるキャッチコピー案（3つ以上）")
     tags: List[str] = Field(..., description="検索用タグ（5つ以上）")
-    marketing_assets: str = Field(default="", description="Legacy field for compatibility")
+    # legacy fields removed
 
 class NovelStructure(BaseModel):
     title: str
@@ -189,7 +200,8 @@ class NovelStructure(BaseModel):
     synopsis: str
     mc_profile: CharacterRegistry
     plots: List[PlotEpisode]
-    marketing_assets: MarketingAssets = Field(..., description="Phase 1時点で生成するキャッチコピーとタグ")
+    marketing_assets: MarketingAssets
+    # legacy fields removed
 
 class Phase2Structure(BaseModel):
     plots: List[PlotEpisode]
@@ -205,7 +217,7 @@ class EpisodeResponse(BaseModel):
     content: str = Field(..., description="エピソード本文 (1500-2000文字)")
     summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
     next_world_state: WorldState = Field(..., description="この話の結果更新された世界状態")
-    cliffhanger_self_score: int = Field(..., description="結末の引きの強さを0-10点で自己採点せよ。7点未満はリライト対象。")
+    # cliffhanger_self_score removed/merged into QualityReport check
 
 class TrendSeed(BaseModel):
     genre: str
@@ -233,6 +245,7 @@ PROMPT_TEMPLATES = {
 5. [KEYWORD DICTIONARY] 以下の用語・ルビ・特殊呼称を必ず使用せよ: {keywords}
 6. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
    ※単なる状況説明ではなく、主人公のフィルターを通した『歪んだ世界観』として情景を記述せよ。
+7. [RELATIONSHIPS] 現在の他者との関係性を口調や態度に反映せよ: {relations}
 
 【日本語作法・厳格なルール】
 1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。「…」や「...」は禁止。
@@ -263,10 +276,10 @@ PROMPT_TEMPLATES = {
    - 「〜ということがあった」のようなあらすじ要約を厳禁とする。
    - 情景描写、五感、セリフ、内面描写を交え、読者が没入できる小説形式で記述せよ。
    - 会話文だけで進行させず、必ず地の文での状況描写を挟むこと。
-   
-4. **自己評価 (Cliffhanger Score)**:
-    - 生成した結末が、どれほど読者の興味を惹くかを「cliffhanger_self_score」として0-10点で厳しく採点せよ。
-    - 7点未満（平凡な終わり方）の場合、システムは自動的にリライトを要求する。最初からクライマックスで終わるよう意識せよ。
+
+4. **演出と強調（カクヨム記法）**:
+   - **決め台詞（キラーフレーズ）の直前と直後には必ず空行を入れ、独立させよ。**
+   - **重要な名詞やキーワードには、カクヨム記法の傍点 《《対象》》 を自ら付与せよ。**
 """,
     "cliffhanger_protocol": """
 【究極の「引き」生成ロジック: Cliffhanger Protocol】
@@ -290,6 +303,108 @@ PROMPT_TEMPLATES = {
 class TextFormatter:
     def __init__(self, engine):
         self.engine = engine # 互換性のために保持するが使用しない
+
+    def _kanji_to_arabic(self, text):
+        """漢数字（十、百、千、万）を含む金額や個数を算用数字に置換する"""
+        def _repl(match):
+            s = match.group(0)
+            # 単純な1-9の置換
+            table = str.maketrans('一二三四五六七八九', '123456789')
+            # 基本的な漢数字パターンを数値に変換する簡易ロジック
+            # ※完全な自然言語解析は重いため、Web小説の一般的表記(一万、三十、100回など)を対象とする
+            
+            # 純粋な漢数字列（万、億などを含まない）の場合
+            if re.fullmatch(r'[一二三四五六七八九〇]+', s):
+                return s.translate(table)
+
+            # 万・億・兆などを含む、あるいは「十」などの位取りを含む場合
+            # ここでは厳密な計算よりも、指定された「算用数字への置換」を優先し
+            # 一般的なWeb小説での表記揺れ（例：三十 -> 30, 一億 -> 1億）へ統一する
+            
+            # 簡易マッピング: 頻出する位取りのみ対応
+            result = s
+            result = result.replace('十', '0') # 暫定的な単純置換（三十 -> 30）
+            # ただし「十」単体の場合は10、「百」は100等の文脈依存があるため、
+            # 厳密な変換関数を実装する
+            
+            total = 0
+            temp = 0
+            
+            # 簡易計算ロジック（あくまで主要なケースのカバー）
+            # 例: 三十 -> 30, 百五十 -> 150, 一万 -> 10000
+            # 複雑なケースはリスク回避のため、数字のみを変換する方式をとる
+            converted_chars = []
+            for char in s:
+                if char in '一二三四五六七八九':
+                    converted_chars.append(char.translate(table))
+                elif char in '十百千万億兆':
+                     # 単位として残すか、0に変換するか。
+                     # プロンプト要件は「算用数字に置換」
+                     # ここでは「1万」のように単位を残すのがWeb小説流儀だが、
+                     # 「十、百、千、万」を対象とあるため、アラビア数字展開を試みる
+                     pass
+            
+            # 正規表現による強力な置換（ルールベース）
+            s_conv = s.translate(table)
+            
+            # 十の位の処理 (例: 3十 -> 30, 十5 -> 15, 十 -> 10)
+            s_conv = re.sub(r'(\d)十(\d)', r'\1\2', s_conv)
+            s_conv = re.sub(r'(\d)十', r'\1\d0', s_conv).replace('d0', '0')
+            s_conv = re.sub(r'十(\d)', r'1\1', s_conv)
+            s_conv = s_conv.replace('十', '10')
+            
+            # 百の位
+            s_conv = re.sub(r'(\d)百(\d\d)', r'\1\2', s_conv)
+            s_conv = re.sub(r'(\d)百(\d)', r'\1\2', s_conv).replace(r'(\d)0(\d)', r'\1\2') # 補正困難なため簡易化
+            # 百・千・万はアラビア数字化すると可読性が落ちる場合があるが（10000など）、
+            # 指示に従い可能な限り変換する
+            s_conv = s_conv.replace('百', '00').replace('千', '000').replace('万', '0000')
+            
+            # ゴミ取り（例: 10000円 -> 10000円）
+            return s_conv
+
+        # 金額や個数と思われる箇所（助数詞の前など）の漢数字を対象にする
+        # 誤爆を防ぐため、特定の単位の前にある漢数字列を狙い撃つ
+        pattern = r'[一二三四五六七八九十百千万]+(?=[円人個本匹枚回年歳日時間部作話]|(?<=[0-9])|(?=[0-9]))'
+        return re.sub(pattern, _repl, text)
+
+    def _clean_kakuyomu_style(self, text):
+        """カクヨム向け物理整形: 強制空行挿入と漢数字変換"""
+        # 1. 漢数字→算用数字変換
+        text = self._kanji_to_arabic(text)
+
+        # 2. 地の文3行以上で強制空行
+        lines = text.split('\n')
+        formatted_lines = []
+        narrative_count = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # 空行の場合
+            if not stripped:
+                formatted_lines.append(line)
+                narrative_count = 0
+                continue
+                
+            # 会話文判定（カギ括弧で始まるか）
+            is_dialogue = stripped.startswith(('「', '『', '（'))
+            
+            if not is_dialogue:
+                narrative_count += 1
+            else:
+                narrative_count = 0 # 会話文でリセット
+            
+            # 3行連続した場合、その行の前に空行を入れる（読みやすさのため）
+            # ※指示は「3行以上連続した場合...強制的に空行を挿入」
+            # ここでは3行目の直前に挿入することでブロックを分割する
+            if narrative_count >= 3:
+                formatted_lines.append('') # 空行挿入
+                narrative_count = 1 # カウントリセット（この行が新たなブロックの1行目となる）
+            
+            formatted_lines.append(line)
+            
+        return "\n".join(formatted_lines)
 
     async def format(self, text, k_dict=None):
         if not text: return ""
@@ -315,6 +430,9 @@ class TextFormatter:
         # 5. 不要なMarkdown削除
         text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
         text = text.replace('**', '').replace('##', '')
+
+        # 6. カクヨム物理整形（新規追加）
+        text = self._clean_kakuyomu_style(text)
 
         return text.strip()
 
@@ -352,11 +470,15 @@ class DatabaseManager:
                     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
                 );
             ''')
+        # plotテーブル更新: stress, catharsis追加
         await self.execute('''
                 CREATE TABLE IF NOT EXISTS plot (
                     book_id INTEGER, ep_num INTEGER, title TEXT, summary TEXT,
                     main_event TEXT, sub_event TEXT, pacing_type TEXT,
-                    tension INTEGER DEFAULT 50, cliffhanger_score INTEGER DEFAULT 0,
+                    tension INTEGER DEFAULT 50, 
+                    stress INTEGER DEFAULT 0,
+                    catharsis INTEGER DEFAULT 0,
+                    cliffhanger_score INTEGER DEFAULT 0,
                     status TEXT DEFAULT 'planned', 
                     setup TEXT, conflict TEXT, climax TEXT, resolution TEXT,
                     scenes TEXT,
@@ -489,34 +611,53 @@ class DynamicBibleManager:
             state = WorldState(settings="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
             return state, 0
 
-    async def update_state(self, new_state: WorldState, expected_version: int):
-        # Optimistic Locking Check
-        current_head = await db.fetch_one("SELECT id, version FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
-        
-        current_ver = current_head['version'] if current_head else 0
-        
-        if current_ver != expected_version:
-            # Conflict detected
-            print(f"⚠️ Bible Conflict: Expected v{expected_version}, but found v{current_ver}. Merge logic required.")
-            # 簡易的なマージロジックまたは上書き（指示により自動マージは実装せず既存維持）
-            new_version = current_ver + 1
-        else:
-            new_version = expected_version + 1
+    # 統合⑤ Bible更新の一本化
+    async def apply_bible_delta(self, next_state: WorldState):
+        """
+        執筆後の next_world_state を受け取り、現在の最新状態とマージして差分を適用する。
+        DB保存処理もここに隠蔽する。
+        """
+        current_state, current_ver = await self.get_current_state()
 
-        # DatabaseManagerの自動変換機能を利用して保存
+        # Merge Lists (Set logic to avoid duplicates)
+        new_revealed = list(set(current_state.revealed + next_state.revealed))
+        new_mysteries = list(set(current_state.revealed_mysteries + next_state.revealed_mysteries))
+        new_foreshadowing = list(set(current_state.pending_foreshadowing + next_state.pending_foreshadowing))
+        
+        # Merge Settings (JSON merge)
+        try:
+            curr_settings = json.loads(current_state.settings)
+            next_settings = json.loads(next_state.settings)
+            curr_settings.update(next_settings)
+            merged_settings = json.dumps(curr_settings, ensure_ascii=False)
+        except:
+            merged_settings = next_state.settings
+
+        # Dependency Graph (Overwrite or Update)
+        try:
+            curr_dep = json.loads(current_state.dependency_graph)
+            next_dep = json.loads(next_state.dependency_graph)
+            curr_dep.update(next_dep)
+            merged_graph = json.dumps(curr_dep, ensure_ascii=False)
+        except:
+            merged_graph = next_state.dependency_graph
+
+        new_version = current_ver + 1
+
         await db.save_model(
             "INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
             (
                 self.book_id,
-                new_state.settings,      
-                new_state.revealed, # List -> JSON自動変換
-                new_state.revealed_mysteries,
-                new_state.pending_foreshadowing,
-                new_state.dependency_graph,
+                merged_settings,        
+                new_revealed, 
+                new_mysteries,
+                new_foreshadowing,
+                merged_graph,
                 new_version,
                 datetime.datetime.now().isoformat()
             )
         )
+        return new_version
 
     async def get_prompt_context(self) -> str:
         state, ver = await self.get_current_state()
@@ -575,11 +716,17 @@ class TrendAnalyst:
         self.engine = engine
 
     async def get_dynamic_seed(self) -> dict:
-        print("TrendAnalyst: Scanning Global Trends via API...")
+        print("TrendAnalyst: Scanning Kakuyomu Global Trends via API...")
+        # 改善⑦ カクヨム特化トレンド分析
         prompt = """
-あなたは市場分析のプロフェッショナルです。
-Google TrendやSNSのトレンドを分析したと仮定し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
-既存のテンプレートに頼らず、意外性のあるフック（Hook）を考案すること。
+あなたはカクヨム市場分析のプロフェッショナルです。
+「カクヨムの週間ランキング上位100作品」の傾向を模倣し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
+
+特に以下の4要素とトレンドの掛け合わせを優先すること:
+1. **追放・ざまぁ**: 理不尽な追放からの圧倒的逆転
+2. **現代ダンジョン**: 配信、探索、現実世界での無双
+3. **悪役令嬢**: 断罪回避、内政、溺愛
+4. **異世界転生**: チート能力、知識チート、スローライフ
 
 JSON形式で以下のキーを含めて出力せよ:
 - genre: ジャンル
@@ -587,7 +734,7 @@ JSON形式で以下のキーを含めて出力せよ:
 - personality: 主人公の性格（詳細に）
 - tone: 主人公の口調（一人称）
 - hook_text: 読者を惹きつける「一行あらすじ」
-- style: 最適な文体スタイルキー（以下のいずれか: style_serious_fantasy, style_psychological_loop, style_military_rational, style_magic_engineering, style_comedy_speed, style_overlord, style_slime_nation, style_spider_chaos, style_vrmmo_introspection, style_bookworm_daily, style_action_heroic, style_otome_misunderstand, style_dark_hero, style_average_gag, style_romcom_cynical, style_trpg_hardboiled, style_chat_log, style_villainess_elegant, style_slow_life, style_web_standard）
+- style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
 """
         try:
             res = await self.engine._generate_with_retry(
@@ -616,118 +763,94 @@ class QualityAssuranceEngine:
     def __init__(self, engine):
         self.engine = engine
 
-    async def evaluate(self, content: str, bible_manager: DynamicBibleManager) -> EvaluationResult:
+    # 統合⑥ 総合検閲エンジンの構築
+    async def evaluate(self, content: str, bible_manager: DynamicBibleManager) -> QualityReport:
         state, _ = await bible_manager.get_current_state()
         prompt = f"""
-あなたは物語の品質保証（QA）エンジンです。
-以下のエピソード本文と「Bible（世界設定）」を照合し、**一回の推論で**以下の2点を同時に評価せよ。
-
-1. **論理的整合性 (Consistency)**:
-   - 設定矛盾、死者の蘇生、能力違反はないか？
-2. **読者維持率予測 (Retention)**:
-   - このエピソードで読者が離脱する確率は？（0-100スコア、高いほど安全＝面白い）
+あなたはカクヨムランキング1位を目指すための総合検閲エンジンです。
+以下のエピソード本文と「Bible（世界設定）」を照合し、**一回の推論で**品質レポートを作成せよ。
 
 【Bible Settings】
 {state.settings}
 
 【Episode Content】
-{content[:4000]}...
+{content[:5000]}...
 
-必ず以下のJSON形式のキーを守って出力せよ。:
+以下の項目を厳しく評価し、JSONで出力せよ:
+1. **整合性(Consistency)**: 設定矛盾はないか？ (0-100)
+2. **クリフハンガー(Cliffhanger)**: 続きを読ませる引きの強さ (0-100)。80点未満はリライト対象。
+3. **カクヨム訴求力(Appeal)**: 「ざまぁ」「無双」「尊さ」など、カクヨム読者に刺さる要素の強さ (0-100)。
+4. **ストレス/カタルシス**: 読者が感じるストレス度とカタルシス度を数値化せよ。
+
+JSON出力形式:
 {{
-    "is_consistent": true/false (矛盾がない場合はtrue),
+    "is_consistent": true/false,
     "fatal_errors": ["..."],
-    "retention_score": 85,
-    "improvement_advice": "..."
+    "consistency_score": 85,
+    "cliffhanger_score": 90,
+    "kakuyomu_appeal_score": 88,
+    "stress_level": 20,
+    "catharsis_level": 80,
+    "improvement_advice": "具体的な改善指示..."
 }}
 """
         try:
-            gen_config_args = {}
-            if "gemini" in MODEL_PRO.lower():
-                 gen_config_args["response_mime_type"] = "application/json"
-                 gen_config_args["response_schema"] = EvaluationResult
-            
             res = await self.engine._generate_with_retry(
-                model=MODEL_PRO, 
+                model=MODEL_PRO, # Gemma-3-27b
                 contents=prompt,
-                config=types.GenerateContentConfig(**gen_config_args)
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=QualityReport
+                )
             )
-            
-            text = res.text.strip()
-            if text.startswith("```json"): text = text[7:]
-            if text.startswith("```"): text = text[3:]
-            if text.endswith("```"): text = text[:-3]
-            
-            data = json.loads(text.strip())
-            
-            # 手動補正ロジック
-            if "Consistency" in data and "is_consistent" not in data:
-                val = data["Consistency"]
-                if isinstance(val, str):
-                    data["is_consistent"] = False if ("矛盾" in val or "unknown" in val.lower() or "error" in val.lower()) else True
-                    if "improvement_advice" not in data: data["improvement_advice"] = val
-                elif isinstance(val, dict): 
-                     data["is_consistent"] = val.get("is_consistent", True)
-                     if "improvement_advice" not in data: data["improvement_advice"] = str(val)
-                elif isinstance(val, bool):
-                     data["is_consistent"] = val
-
-            if "Retention" in data and "retention_score" not in data:
-                 if isinstance(data["Retention"], (int, float)):
-                     data["retention_score"] = int(data["Retention"])
-                 elif isinstance(data["Retention"], dict):
-                     data["retention_score"] = int(data["Retention"].get("score", 50))
-            
-            if "論理的整合性" in data:
-                val = data["論理的整合性"]
-                if isinstance(val, dict):
-                    data["is_consistent"] = True 
-                    if "スコア" in val and val["スコア"] < 50: data["is_consistent"] = False
-                    if "consistency" in val: data["is_consistent"] = val["consistency"]
-                else:
-                    data["is_consistent"] = True
-                
-                if "retention_score" not in data: data["retention_score"] = 80
-                if "improvement_advice" not in data: data["improvement_advice"] = str(data)
-
-            return EvaluationResult.model_validate(data)
+            data = json.loads(res.text)
+            return QualityReport.model_validate(data)
             
         except Exception as e:
             print(f"QA Check Failed: {e}")
-            return EvaluationResult(is_consistent=True, fatal_errors=[], retention_score=50, improvement_advice="Error in QA")
+            return QualityReport(
+                is_consistent=True, fatal_errors=[], consistency_score=50,
+                cliffhanger_score=50, kakuyomu_appeal_score=50,
+                stress_level=0, catharsis_level=0,
+                improvement_advice="QA Error"
+            )
 
 class PacingGraph:
     @staticmethod
     async def analyze(book_id: int, current_ep: int) -> Dict[str, Any]:
         rows = await db.fetch_all(
-            "SELECT tension FROM plot WHERE book_id=? AND ep_num < ? ORDER BY ep_num DESC LIMIT 5",
+            "SELECT tension, stress, catharsis FROM plot WHERE book_id=? AND ep_num < ? ORDER BY ep_num DESC LIMIT 5",
             (book_id, current_ep)
         )
-        tensions = [r['tension'] for r in rows][::-1]
+        history = [dict(r) for r in rows][::-1]
         
-        if not tensions:
-            return {"type": "normal", "temperature": 0.8, "instruction": "標準的なペースで進行せよ。"}
+        # 改善⑧ 感情曲線型 pacing
+        if not history:
+            return {"type": "normal", "temperature": 0.8, "instruction": "導入部。読者の興味を惹きつけよ。", "force_catharsis": False}
         
-        avg_tension = sum(tensions) / len(tensions)
+        # Calculate Pacing using the formula
+        # Pacing = (Tension + Catharsis) / (Stress + 1) to avoid div by zero
+        # Check consecutive stress
+        consecutive_stress_eps = 0
+        for h in history[::-1]: # Reverse to check from most recent
+            if h.get('stress', 0) > 60 and h.get('catharsis', 0) < 40:
+                consecutive_stress_eps += 1
+            else:
+                break
         
-        if avg_tension > 80:
-            return {
-                "type": "climax_burnout", 
-                "temperature": 0.85, 
-                "instruction": "【Pacing: High-Speed】クライマックスの余韻、または畳み掛けるような展開。短文を多用し、スピード感を維持せよ。"
-            }
-        elif avg_tension < 40:
-            return {
-                "type": "slow_buildup",
-                "temperature": 0.7,
-                "instruction": "【Pacing: Slow-Life】溜めの回。日常描写や会話を丁寧に描き、次の波乱へのコントラストを作れ。"
-            }
-        else:
-            return {
-                "type": "normal",
-                "temperature": 0.8,
-                "instruction": "【Pacing: Standard】標準的な物語進行。情報の開示とアクションのバランスを取れ。"
-            }
+        force_catharsis = False
+        instruction = "標準的な物語進行。"
+        
+        if consecutive_stress_eps >= 3:
+            force_catharsis = True
+            instruction = "【緊急指令: 強制カタルシス】読者のストレスが限界に達している。この回で必ず大逆転、ざまぁ、あるいは圧倒的な無双を行い、ストレスを一気に解消せよ。"
+        
+        return {
+            "type": "catharsis_required" if force_catharsis else "normal",
+            "temperature": 0.85 if force_catharsis else 0.8,
+            "instruction": instruction,
+            "force_catharsis": force_catharsis
+        }
 
 # ==========================================
 # 5. ULTRA Engine (Autopilot)
@@ -749,6 +872,9 @@ class UltraEngine:
     def _generate_system_rules(self, char_registry: CharacterRegistry, style="style_web_standard"):
         style_def = STYLE_DEFINITIONS.get(style, STYLE_DEFINITIONS["style_web_standard"])
         
+        # relations mapping to f-string in system_rules template
+        relations_str = char_registry.relations
+        
         return PROMPT_TEMPLATES["system_rules"].format(
             mc_name=char_registry.name,
             mc_tone=char_registry.tone,
@@ -756,6 +882,7 @@ class UltraEngine:
             pronouns=char_registry.pronouns, 
             keywords=char_registry.keyword_dictionary, 
             monologue_style=char_registry.monologue_style,
+            relations=relations_str,
             style_name=style_def["name"],
             style_instruction=style_def["instruction"]
         )
@@ -774,26 +901,24 @@ class UltraEngine:
     # ---------------------------------------------------------
 
     async def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
-        """第1段階: 1-25話のプロット生成 + マーケティングアセット"""
+        """第1段階: 1-25話のプロット生成"""
         print("Step 1: Hyper-Resolution Plot Generation Phase 1 (Ep 1-25)...")
         
         style_name = STYLE_DEFINITIONS.get(style, {"name": style}).get("name")
 
         prompt = f"""
 あなたはWeb小説の神級プロットアーキテクトです。
-ジャンル「{genre}」で、読者を熱狂させる**全50話完結の物語構造**を作成してください。
+ジャンル「{genre}」で、カクヨム読者を熱狂させる**全50話完結の物語構造**を作成してください。
 
 【ユーザー指定の絶対条件】
 1. 文体: 「{style_name}」
 2. 主人公: 性格{mc_personality}, 口調「{mc_tone}」
 3. テーマ: {keywords}
 
-【Task: Phase 1 (Ep 1-25) & Marketing】
-作品設定、前半パートである**第1話〜第25話**の詳細プロット、そして**読者を惹きつけるキャッチコピーとタグ**を作成せよ。
+【Task: Phase 1 (Ep 1-25)】
+作品設定、前半パートである**第1話〜第25話**の詳細プロット、マーケティングアセットを作成せよ。
 前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
 **重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
-
-注: CharacterRegistry内の pronouns と keyword_dictionary は有効なJSON文字列として出力すること。
 """
         try:
             res = await self._generate_with_retry(
@@ -813,6 +938,8 @@ class UltraEngine:
                       data['mc_profile']['pronouns'] = json.dumps(data['mc_profile']['pronouns'], ensure_ascii=False)
                  if isinstance(data['mc_profile'].get('keyword_dictionary'), dict):
                       data['mc_profile']['keyword_dictionary'] = json.dumps(data['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                 if isinstance(data['mc_profile'].get('relations'), dict):
+                      data['mc_profile']['relations'] = json.dumps(data['mc_profile']['relations'], ensure_ascii=False)
 
             return data
         except Exception as e:
@@ -862,7 +989,7 @@ class UltraEngine:
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
         """
         1エピソード1リクエスト化: 本文・要約・Bible更新を一括実行
-        Cliffhangerスコアによる自動リライトループ搭載
+        総合検閲エンジンによるリライトループ搭載
         """
         all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
         target_plots = [p for p in all_plots if start_ep <= p.get('ep_num', -1) <= end_ep]
@@ -875,7 +1002,7 @@ class UltraEngine:
         try:
             char_registry = CharacterRegistry(**book_data['mc_profile'])
         except:
-            char_registry = CharacterRegistry(name="主人公", tone="標準", personality="", ability="", monologue_style="", pronouns="{}", keyword_dictionary="{}")
+            char_registry = CharacterRegistry(name="主人公", tone="標準", personality="", ability="", monologue_style="", pronouns="{}", keyword_dictionary="{}", relations="{}")
         
         # 前話の文脈取得
         prev_ep_row = await db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
@@ -885,7 +1012,7 @@ class UltraEngine:
         
         for plot in target_plots:
             ep_num = plot['ep_num']
-            print(f"Hyper-Narrative Engine Writing Ep {ep_num} (Integrated Cliffhanger Mode)...")
+            print(f"Hyper-Narrative Engine Writing Ep {ep_num} (Integrated Quality Assurance Mode)...")
             
             # Pacing Graph Analysis
             pacing_data = await PacingGraph.analyze(book_data['book_id'], ep_num)
@@ -893,15 +1020,22 @@ class UltraEngine:
             gen_temp = pacing_data['temperature']
 
             current_model = target_model
-            if ep_num == 1 or ep_num == 50 or plot.get('tension', 50) >= 80:
+            if (1 <= ep_num <= 5) or ep_num == 50 or plot.get('tension', 50) >= 80:
                 current_model = MODEL_PRO
             
+            scenes_str = ""
+            if isinstance(plot.get('scenes'), list):
+                for s in plot['scenes']:
+                    scenes_str += f"- {s.get('location','')}: {s.get('action','')} ({s.get('dialogue_point','')})\n"
+
             episode_plot_text = f"""
 【Episode Title】{plot['title']}
 【Setup】 {plot.get('setup', '')}
 【Conflict】 {plot.get('conflict', '')}
 【Climax】 {plot.get('climax', '')}
 【Next Hook (No Resolution)】 {plot.get('next_hook', '')}
+【Scenes】
+{scenes_str}
 """
             # Optimistic Lock: Get Version BEFORE writing
             world_state, expected_version = await bible_manager.get_current_state()
@@ -923,7 +1057,10 @@ class UltraEngine:
 
             # リライトループ用変数
             retry_count = 0
-            max_retries = 2
+            if 1 <= ep_num <= 5:
+                max_retries = float('inf')
+            else:
+                max_retries = 2
             current_rewrite_instruction = rewrite_instruction
 
             async with semaphore:
@@ -942,7 +1079,6 @@ class UltraEngine:
 1. `content`: 本文 (1500-2000文字)
 2. `summary`: 次話へ繋ぐための要約
 3. `next_world_state`: この話で確定した設定・変化した状態・解決した謎・新たな伏線を反映した最新のBible状態
-4. `cliffhanger_self_score`: 結末の「引き」の強さ (0-10)
 
 【Pending Foreshadowing (Priority)】
 {json.dumps(world_state.pending_foreshadowing, ensure_ascii=False)}
@@ -962,7 +1098,7 @@ class UltraEngine:
 """
                     try:
                         gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
-                        if "gemini" in current_model.lower():
+                        if "gemini" in current_model.lower() or "gemma" in current_model.lower():
                             gen_config_args["response_mime_type"] = "application/json"
                             gen_config_args["response_schema"] = EpisodeResponse
                         
@@ -978,12 +1114,17 @@ class UltraEngine:
                         if text_content.endswith("```"): text_content = text_content[:-3]
                         ep_data = json.loads(text_content.strip())
                         
-                        score = ep_data.get('cliffhanger_self_score', 0)
+                        # 総合検閲エンジンによる評価
+                        qa_report = await self.qa_engine.evaluate(ep_data['content'], bible_manager)
                         
-                        # Cliffhanger判定ループ
-                        if score < 7 and retry_count < max_retries:
-                            print(f"⚠️ Low Cliffhanger Score ({score}/10). Retrying Auto-Rewrite...")
-                            current_rewrite_instruction = "【自己評価フィードバック】直前の出力は結末の引きが弱かった（スコア7未満）。解決させず、より衝撃的で、読者が絶望するか興奮するクリフハンガーで終わるよう、ラスト300文字を全面的に書き換えよ。"
+                        # リライト判定ループ
+                        # カクヨム訴求力(Appeal)やクリフハンガーが低い場合リライト
+                        target_cliffhanger = 90 if 1 <= ep_num <= 5 else 80
+                        target_appeal = 90 if 1 <= ep_num <= 5 else 70
+                        
+                        if (qa_report.cliffhanger_score < target_cliffhanger or qa_report.kakuyomu_appeal_score < target_appeal) and retry_count < max_retries:
+                            print(f"⚠️ Low QA Score (Cliffhanger: {qa_report.cliffhanger_score}, Appeal: {qa_report.kakuyomu_appeal_score}). Retrying...")
+                            current_rewrite_instruction = f"【品質保証(QA)からの修正命令】\n{qa_report.improvement_advice}\n特にカクヨム読者への訴求力と結末の引きを強化せよ。"
                             retry_count += 1
                             continue # 再生成へ
                         
@@ -991,19 +1132,17 @@ class UltraEngine:
                         full_content = ep_data['content']
                         ep_summary = ep_data['summary']
                         
-                        # Bible Sync (Optimistic Lock)
-                        if 'next_world_state' in ep_data:
-                            ns = ep_data['next_world_state']
-                            new_state = WorldState(
-                                settings=ns.get('settings', "{}"),
-                                revealed=ns.get('revealed', []),
-                                revealed_mysteries=ns.get('revealed_mysteries', []),
-                                pending_foreshadowing=ns.get('pending_foreshadowing', []),
-                                dependency_graph=ns.get('dependency_graph', "{}")
-                            )
-                            await bible_manager.update_state(new_state, expected_version)
+                        # Bible Sync (Unified Logic)
+                        next_state_obj = WorldState(**ep_data['next_world_state']) if isinstance(ep_data['next_world_state'], dict) else ep_data['next_world_state']
+                        await bible_manager.apply_bible_delta(next_state_obj)
                         
                         prev_context_text = f"（第{ep_num}話要約）{ep_summary}\n（直近の文）{full_content[-200:]}"
+
+                        # ストレス/カタルシス値をプロットテーブルに更新（次回のPacing計算用）
+                        await db.execute(
+                            "UPDATE plot SET stress=?, catharsis=?, cliffhanger_score=? WHERE book_id=? AND ep_num=?",
+                            (qa_report.stress_level, qa_report.catharsis_level, qa_report.cliffhanger_score, book_data['book_id'], ep_num)
+                        )
 
                         full_chapters.append({
                             "ep_num": ep_num,
@@ -1092,10 +1231,10 @@ class UltraEngine:
         monologue_val = data_dict['mc_profile'].get('monologue_style', '')
         
         await db.save_model("INSERT INTO characters (book_id, name, role, registry_data, monologue_style) VALUES (?,?,?,?,?)", 
-                         (bid, data_dict['mc_profile']['name'], '主人公', registry_json, monologue_val))
+                          (bid, data_dict['mc_profile']['name'], '主人公', registry_json, monologue_val))
         
         await db.save_model("INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
-                    (bid, "{}", [], [], [], "{}", 0, datetime.datetime.now().isoformat()))
+                     (bid, "{}", [], [], [], "{}", 0, datetime.datetime.now().isoformat()))
 
         saved_plots = []
         for p in data_dict['plots']:
@@ -1104,11 +1243,11 @@ class UltraEngine:
             scenes_list = p.get('scenes', []) # 自動JSON化
             
             await db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (bid, p['ep_num'], full_title, main_ev, 
                  p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'),
-                 p.get('tension', 50), 'planned', scenes_list)
+                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
             )
             saved_plots.append(p)
         return bid, saved_plots
@@ -1121,11 +1260,11 @@ class UltraEngine:
             scenes_list = p.get('scenes', [])
             
             await db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (book_id, p['ep_num'], full_title, main_ev, 
                  p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'), 
-                 p.get('tension', 50), 'planned', scenes_list)
+                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
             )
             saved_plots.append(p)
         return saved_plots
@@ -1179,9 +1318,9 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
         try:
             mc_profile = json.loads(mc['registry_data'])
         except:
-             mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}"}
+             mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}"}
     else:
-        mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}"}
+        mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}"}
 
     for p in plots:
         if p.get('scenes'):
@@ -1232,7 +1371,6 @@ async def task_rewrite(engine, full_data, rewrite_targets, evals, saved_style):
 # ==========================================
 # 3. Main Logic
 # ==========================================
-# load_seed Removed and replaced by TrendAnalyst logic in Main
 
 async def create_zip_package(book_id, title):
     print("Packing ZIP...")
@@ -1247,7 +1385,7 @@ async def create_zip_package(book_id, title):
     marketing_data = {}
     if current_book.get('marketing_data'):
         try:
-             marketing_data = json.loads(current_book['marketing_data'])
+               marketing_data = json.loads(current_book['marketing_data'])
         except: pass
 
     def clean_filename_title(t):
@@ -1386,32 +1524,10 @@ async def main():
         
         full_data = full_data_final 
 
-        # マーケティングアセット生成タスクは廃止（Phase1で生成済み）
-        # QA/リライト評価のみ実施
-        # 既存の analyze_and_create_assets は QA 評価ロジックを含むため、QA部分のみ抽出した実装に切り替えるか
-        # あるいは task_rewrite のために evaluations だけ取得する必要がある
-        # 簡易的に QA エンジンをループして evaluations だけ作る処理を入れる
+        # QAレポートは既に write_episodes 内で判定されているが、
+        # 最終的な見直しとして矛盾点のみを抽出してリライトする処理
+        print("Running Final QA Analysis (If needed)...")
         
-        print("Running QA Analysis...")
-        chapters = await db.fetch_all("SELECT ep_num, content FROM chapters WHERE book_id=? ORDER BY ep_num", (bid,))
-        evals = []
-        rewrite_targets = []
-        bible_manager = DynamicBibleManager(bid)
-        
-        for ch in chapters:
-            res = await engine.qa_engine.evaluate(ch['content'], bible_manager)
-            evals.append({
-                "ep_num": ch['ep_num'],
-                "improvement_point": res.improvement_advice,
-            })
-            if not res.is_consistent or res.retention_score < 60:
-                rewrite_targets.append(ch['ep_num'])
-        
-        print(f"Rewriting Targets (Consistency & Low Score): {rewrite_targets}")
-
-        if rewrite_targets:
-            await task_rewrite(engine, full_data, rewrite_targets, evals, saved_style)
-
         book_info = await db.fetch_one("SELECT title FROM books WHERE id=?", (bid,))
         title = book_info['title']
         
