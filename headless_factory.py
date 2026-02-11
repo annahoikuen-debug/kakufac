@@ -28,7 +28,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-3-flash-preview"
+MODEL_ULTRALONG = "gemini-2.5-flash"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
 MODEL_MARKETING = "gemini-2.5-flash-lite"
@@ -1840,3 +1840,4 @@ async def main():
 if __name__ == "__main__":
 
     asyncio.run(main())
+
