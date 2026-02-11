@@ -1725,35 +1725,15 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     anchors = [15] + [i for i in range(25, 201, 10)]
     
     # 今回の範囲に含まれるアンカーを抽出 (start_ep ~ end_ep)
+    # アンカーは「章の終わり」。つまり、アンカーポイントまでの状態を生成し、
+    # その次の話から新しいスレッドを開始できるようにする。
     relevant_anchors = [a for a in anchors if start_ep <= a < end_ep] 
     
-    # 1. アンカー状態の先行生成 (もしDBになければ生成)
-    # 2段階生成で既にアンカーがDBに入っている可能性がある。
-    # しかし、Call 1 で生成したアンカーは `chapters` テーブルに保存されているはず。
-    # ここでは「DBにない場合のみ生成」するロジックにするのが安全。
-    # generate_anchor_state will overwrite, which is acceptable if we want to refresh,
-    # but since we generated them in phase 1, we might skip.
-    # However, Phase 1 only generated anchors up to Ep 50 (based on Prompt). 
-    # If this batch goes beyond, we need generation.
-    # Also, Phase 1 saves anchors to `data1.anchors` which `main` saves to DB.
-    # So we assume they are in DB. We can skip generation if they exist.
-    # For simplicity and robustness, we can let it run (it might be redundant but safe).
-    # Actually, `generate_anchor_state` uses `MODEL_ULTRALONG` and consumes tokens.
-    # If they are already saved by `main`, we should skip.
-    
+    # 1. アンカー状態の先行生成 (DBになければ)
     for anchor in relevant_anchors:
-        # Check if anchor exists
-        existing = await repo.get_latest_chapter(bid, anchor + 1) # get_latest_chapter(ep) returns ep-1. We want anchor at `anchor`.
-        # Wait, get_latest_chapter(16) returns 15. Correct.
-        # But we saved anchor as "ANCHOR_EP_15".
-        # Let's check.
-        # Actually, let's just generate if needed. The cost is low compared to writing.
-        # But wait, we want to use the consistency from Phase 1.
-        # If we regenerate, we might lose the Phase 1 consistency.
-        # So we should ONLY generate if missing.
-        
         # Check existence logic:
-        chk = await db.fetch_one("SELECT id FROM chapters WHERE book_id=? AND ep_num=?", (bid, anchor))
+        # idカラムがないため、book_idを選択するか、1を選択する (Fixed previous error)
+        chk = await db.fetch_one("SELECT book_id FROM chapters WHERE book_id=? AND ep_num=?", (bid, anchor))
         if not chk:
              await engine.generate_anchor_state(full_data, anchor)
 
