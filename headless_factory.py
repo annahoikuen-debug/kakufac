@@ -8,11 +8,9 @@ import zipfile
 import io
 import sqlite3
 import smtplib
-import math
 import asyncio
-from typing import List, Optional, Dict, Any, Type, Union
-from enum import Enum
-from pydantic import BaseModel, Field, ValidationError
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
 from email.mime.multipart import MIMEMultipart
 from email.mime.base import MIMEBase
 from email import encoders
@@ -20,23 +18,30 @@ from google import genai
 from google.genai import types
 
 # ==========================================
-# 0. 設定 & 2026年仕様 (Headless / Embeddingなし)
+# 0. 設定 & モデル厳格分離
 # ==========================================
 API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
-# モデル設定
-MODEL_ULTRALONG = "gemini-3-flash-preview"
-MODEL_LITE = "gemma-3-12b-it"
-MODEL_PRO = "gemma-3-27b-it" 
-MODEL_MARKETING = "gemini-2.5-flash-lite"
+# --- Model Configuration ---
+# 【プロット用 (APIコール数: 全2回固定)】
+# 複雑な構成と長文脈理解が必要なため Gemini 2.0 Flash を使用
+MODEL_ARCHITECT = "gemini-2.0-flash" 
 
-DB_FILE = "factory_run.db"
+# 【執筆・リライト・QA用 (その他すべて)】
+# 指示従順性が高く、日本語能力に優れた Gemma 3 27B を使用
+MODEL_WRITER = "gemma-3-27b-it"
+
+# 【トレンド分析・高速処理用】
+# 軽量な Gemma 3 12B を使用
+MODEL_FAST = "gemma-3-12b-it" 
+
+DB_FILE = "factory_run_gemma_parallel.db"
 
 # ==========================================
-# 文体定義 & サンプルデータ
+# 1. 文体定義 & Prompt Assets (完全流用)
 # ==========================================
 STYLE_DEFINITIONS = {
     "style_serious_fantasy": {
@@ -118,9 +123,8 @@ STYLE_DEFINITIONS = {
 }
 
 # ==========================================
-# Pydantic Schemas (構造化出力用)
+# 2. Pydantic Schemas
 # ==========================================
-
 class SceneDetail(BaseModel):
     location: str = Field(..., description="シーンの場所")
     action: str = Field(..., description="シーン内で起きる具体的な出来事")
@@ -130,15 +134,14 @@ class SceneDetail(BaseModel):
 class PlotEpisode(BaseModel):
     ep_num: int
     title: str
-    detailed_blueprint: str = Field(..., description="物語の設計図。500文字以上で、具体的な会話、情景、アクションの流れ、前話からの接続を記述すること。")
     setup: str
     conflict: str
     climax: str
     next_hook: str 
     tension: int
-    stress: int = Field(default=0, description="読者のストレス度(0-100)。理不尽な展開やヘイト溜め。")
-    catharsis: int = Field(default=0, description="カタルシス度(0-100)。ざまぁ、逆転、無双。")
-    scenes: List[SceneDetail] = Field(..., description="各シーンの定義。")
+    stress: int = Field(default=0)
+    catharsis: int = Field(default=0)
+    scenes: List[SceneDetail]
 
 class CharacterRegistry(BaseModel):
     name: str
@@ -146,56 +149,35 @@ class CharacterRegistry(BaseModel):
     personality: str
     ability: str
     monologue_style: str
-    pronouns: str = Field(..., description="JSON string mapping keys (e.g., '一人称', '二人称') to values")
-    keyword_dictionary: str = Field(..., description="JSON string mapping unique terms to their reading or definition")
-    relations: str = Field(default="{}", description="JSON string mapping character names to relationship status/feelings (e.g. {'ヒロインA': '好意(90)', 'ライバルB': '敵対(80)'})")
-    dialogue_samples: str = Field(default="{}", description="JSON string mapping specific situations/emotions to sample dialogue lines.")
-
-    def to_dict(self):
-        return self.model_dump()
+    pronouns: str 
+    keyword_dictionary: str
+    relations: str = Field(default="{}")
 
     def get_context_prompt(self) -> str:
-        p_json = {}
-        try: p_json = json.loads(self.pronouns) if isinstance(self.pronouns, str) else self.pronouns
-        except: pass
-        
-        k_json = {}
-        try: k_json = json.loads(self.keyword_dictionary) if isinstance(self.keyword_dictionary, str) else self.keyword_dictionary
-        except: pass
-
-        r_json = {}
-        try: r_json = json.loads(self.relations) if isinstance(self.relations, str) else self.relations
-        except: pass
-
-        d_json = {}
-        try: d_json = json.loads(self.dialogue_samples) if isinstance(self.dialogue_samples, str) else self.dialogue_samples
-        except: pass
-
-        prompt = "【CHARACTER REGISTRY: ABSOLUTE RULES】\n"
-        prompt += f"■ {self.name} (主人公)\n"
-        prompt += f"  - Tone: {self.tone}\n"
-        prompt += f"  - Personality: {self.personality}\n"
-        prompt += f"  - Ability: {self.ability}\n"
-        prompt += f"  - Monologue Style: {self.monologue_style}\n"
-        prompt += f"  - Pronouns: {json.dumps(p_json, ensure_ascii=False)}\n"
-        prompt += f"  - Relations: {json.dumps(r_json, ensure_ascii=False)}\n"
-        prompt += f"  - Dialogue Samples (Must Mimic): {json.dumps(d_json, ensure_ascii=False)}\n"
-        return prompt
+        return f"""【CHARACTER REGISTRY】
+■ {self.name} (主人公)
+  - Tone: {self.tone}
+  - Personality: {self.personality}
+  - Ability: {self.ability}
+  - Monologue Style: {self.monologue_style}
+  - Pronouns: {self.pronouns}
+  - Relations: {self.relations}
+"""
 
 class QualityReport(BaseModel):
-    is_consistent: bool = Field(..., description="設定矛盾がないか")
-    fatal_errors: List[str] = Field(default_factory=list, description="致命的な矛盾")
-    consistency_score: int = Field(..., description="整合性スコア(0-100)")
-    cliffhanger_score: int = Field(..., description="引きの強さ(0-100)")
-    kakuyomu_appeal_score: int = Field(..., description="カクヨム読者への訴求力(0-100)")
-    stress_level: int = Field(..., description="読者が感じるストレスレベル(0-100)")
-    catharsis_level: int = Field(..., description="読者が感じるカタルシスレベル(0-100)")
-    improvement_advice: str = Field(..., description="改善アドバイス")
-    suggested_diff: str = Field(default="", description="具体的な修正済み原稿の差分提案。品質不足と判断した箇所の書き換え案。")
+    is_consistent: bool
+    fatal_errors: List[str]
+    consistency_score: int
+    cliffhanger_score: int
+    kakuyomu_appeal_score: int
+    stress_level: int
+    catharsis_level: int
+    improvement_advice: str
+    suggested_diff: str = Field(default="")
 
 class MarketingAssets(BaseModel):
-    catchcopies: List[str] = Field(..., description="読者を惹きつけるキャッチコピー案（3つ以上）")
-    tags: List[str] = Field(..., description="検索用タグ（5つ以上）")
+    catchcopies: List[str]
+    tags: List[str]
 
 class NovelStructure(BaseModel):
     title: str
@@ -209,90 +191,82 @@ class Phase2Structure(BaseModel):
     plots: List[PlotEpisode]
 
 class WorldState(BaseModel):
-    # 修正: settings と dependency_graph にデフォルト値を設定し、AIが省略してもエラーにならないようにする
-    settings: str = Field(default="{}", description="JSON string representing all world settings (Merged Immutable/Mutable)")
-    revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
-    revealed_mysteries: List[str] = Field(default_factory=list, description="解明済みの伏線リスト")
-    pending_foreshadowing: List[str] = Field(default_factory=list, description="未回収の伏線リスト")
-    dependency_graph: str = Field(default="{}", description="JSON mapping of foreshadowing ID to target ep_num for resolution")
-
-class EpisodeResponse(BaseModel):
-    content: str = Field(..., description="エピソード本文 (1500-2000文字)")
-    summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
-    next_world_state: WorldState = Field(..., description="この話の結果更新された世界状態")
-
-class TrendSeed(BaseModel):
-    genre: str
-    keywords: str
-    personality: str
-    tone: str
-    hook_text: str
-    style: str
+    settings: str = Field(default="{}")
+    revealed: List[str] = Field(default_factory=list)
+    revealed_mysteries: List[str] = Field(default_factory=list)
+    pending_foreshadowing: List[str] = Field(default_factory=list)
+    dependency_graph: str = Field(default="{}")
 
 # ==========================================
-# Prompt Manager
+# 3. Prompt Manager (Full Assets)
 # ==========================================
 class PromptManager:
     TEMPLATES = {
         "system_rules": """# SYSTEM RULES: STRICT ADHERENCE REQUIRED
-【キャラクター・ロック（絶対遵守）】
-以下のキャラクター定義から1ミリでも逸脱した場合、それは重大なエラーとみなされる。
+【キャラクター定義の絶対遵守】
+以下のキャラクター設定を物語の最後まで**固定**せよ。途中で口調や一人称を変更することは「重大なエラー」とみなす。
+
 1. **主人公名**: {mc_name}
 2. **基本口調**: 「{mc_tone}」
-3. **一人称・二人称**: {pronouns}
+3. **性格特性**: {mc_personality}
+4. **一人称・二人称**: {pronouns}
    ※「俺」設定なのに「僕」や「私」を使うことを固く禁ずる。
-4. **関係性の固定**:
-   {relations}
-   ※上記の関係性（好意、敵対、恐怖など）に基づく態度を常に維持せよ。
-5. **口調サンプル**:
-   {mc_dialogue_samples}
-   ※このサンプルのニュアンスを全ての会話で再現せよ。
+   ※相手への呼び方（お前、あんた、貴様など）も固定せよ。
 
-【知識の遮断 (Knowledge Cutoff)】
-あなたは物語の書き手だが、**主人公の知識レベル**を超越してはならない。
-- Bibleに書かれている「世界の真実」や「ラスボスの正体」を、物語上で開示されるまで地の文やセリフに出すことを固く禁ずる。
-- 全ては「主人公の視点」から見た限定的な情報として描写せよ。
+5. [KEYWORD DICTIONARY] 以下の用語・ルビ・特殊呼称を必ず使用せよ: {keywords}
+6. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
+   ※単なる状況説明ではなく、主人公のフィルターを通した『歪んだ世界観』として情景を記述せよ。
+7. [RELATIONSHIPS] 現在の他者との関係性を口調や態度に反映せよ: {relations}
+8. [NUMBERS] 金額・回数・ステータス値などの数量は「算用数字（1, 2, 100）」を使用し、四字熟語や慣用句（一石二鳥、百戦錬磨など）は「漢数字」を使用せよ。
 
 【日本語作法・厳格なルール】
-1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。
+1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。「…」や「...」は禁止。
 2. **感嘆符・疑問符**: 「！」や「？」の直後には必ず全角スペースを1つ空けよ（文末の閉じ括弧直前を除く）。
-3. **改行の演出**: 場面転換や衝撃的な瞬間の前には、空白行を挟んで「溜め」を作れ。
+   - OK: 「なんだと！？　ふざけるな！」
+   - NG: 「なんだと!?ふざけるな!」
+3. **改行の演出**: 
+   - 場面転換や衝撃的な瞬間の前には、空白行を挟んで「溜め」を作れ。
+   - セリフだけで進行せず、適度な改行でリズムを整えよ。
 
 【文体指定: {style_name}】
 {style_instruction}
---------------------------------------------------
+
+【Gemma Writing Protocol】
+You are Gemma, a creative AI writer operating in the highest tier of literary quality.
+Your output must be emotional, logically consistent, and deeply immersive.
 """,
         "writing_rules": """
 【執筆プロトコル: 一括生成モード】
 以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
 
-1. **情報開示制限（Spoiler Guard）**:
-   - **「Detailed Blueprint」に書かれていない新キャラ、新設定、新展開を勝手に創作することを固く禁ずる。**
-   - AIの「話を盛りたい」という欲求を抑え、設計図にあるイベントだけを忠実に描写せよ。
-   - ラスボスや世界の謎など、まだ早い段階のネタバレを絶対に記述するな。
-
-2. **ブリッジ・コンテキスト（前話との接続）**:
-   - **直前のシーンから1秒も時間を飛ばさずに書き始めよ。**
-   - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。
-
-3. **出力文字数**:
+1. **出力文字数**:
    - 必ず **1,500文字〜2,000文字** の範囲に収めること。
+   - 短すぎず、長すぎて出力が途切れないように調整せよ。
 
-4. **構成（起承転結）**:
-   - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。
+2. **構成（起承転結）**:
+   - 1度の出力の中に「導入・展開・クライマックス・結末（引き）」の抑揚をつけよ。
+   - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。読者に「ここで終わるのか！？」という欠乏感を与えよ。
 
-5. **【最重要】カクヨム・メソッド（リアクション）**:
-    - 主人公の行動に対する「周囲の反応」を必ず描写せよ。
+3. **密度**:
+   - 「〜ということがあった」のようなあらすじ要約を厳禁とする。
+   - 情景描写、五感、セリフ、内面描写を交え、読者が没入できる小説形式で記述せよ。
+   - 会話文だけで進行させず、必ず地の文での状況描写を挟むこと。
+
+4. **演出と強調（カクヨム記法）**:
+   - **決め台詞（キラーフレーズ）の直前と直後には必ず空行を入れ、独立させよ。**
+   - **重要な名詞やキーワードには、カクヨム記法の傍点 《《対象》》 を自ら付与せよ。**
 """,
         "cliffhanger_protocol": """
 【究極の「引き」生成ロジック: Cliffhanger Protocol】
 各エピソードの結末は、文脈に応じて最も効果的な「引き」を自律的に判断し、**「読者が次を読まずにいられない状態」**を強制的に作り出せ。
 
 1. **逆算式・ゴール地点固定**:
+   - あなたは「結末の衝撃」から逆算して伏線を張る構成作家である。
    - 本文執筆前に、その話の**「最悪、あるいは最高の結末（最後の一行）」**を確定せよ。
    - 結末をぼかさないこと。予定調和な終わり方をしないこと。
 
 2. **テンション・カタストロフィ**:
+   - あなたは解決の1秒前に筆を置く、冷酷なディレクターである。
    - 絶体絶命の瞬間、あるいは秘密が暴かれる**「直前」で物語を強制終了**せよ。
    - 読者が「救い」や「納得」を得る記述を一切排除せよ。安心させず、解決しきらないこと。
 """,
@@ -326,14 +300,8 @@ JSON形式で以下のキーを含めて出力せよ:
 
 以下の項目を厳しく評価し、JSONで出力せよ:
 1. **整合性(Consistency)**: 設定矛盾はないか？ (0-100)
-   - 特に「まだ開示されていない情報（ネタバレ）」が漏れていないか厳しくチェックせよ。
-   - プロットにない新キャラや設定が勝手に追加されていたら0点にせよ。
 2. **クリフハンガー(Cliffhanger)**: 続きを読ませる引きの強さ (0-100)。80点未満はリライト対象。
-3. **カクヨム訴求力(Appeal)**: (0-100)
-    - 減点対象: 「倒した」「勝った」という事後報告のみの描写 (-20点)
-    - 加点対象: 敵の不快な挑発からの、圧倒的なオーバーキル (+30点)
-    - 加点対象: 周囲の観客による「解説」や「驚き」のリアクション (+20点)
-    - 加点対象: ステータス画面やスキルログによる視覚的な成果表示 (+10点)
+3. **カクヨム訴求力(Appeal)**: 「ざまぁ」「無双」「尊さ」など、カクヨム読者に刺さる要素の強さ (0-100)。
 4. **ストレス/カタルシス**: 読者が感じるストレス度とカタルシス度を数値化せよ。
 5. **書き換え提案(Suggested Diff)**: スコアが低い場合、または改善の余地がある場合、具体的にどの文章をどう書き換えるべきか、修正済みのテキスト案（差分）を提示せよ。
 
@@ -363,7 +331,6 @@ JSON出力形式:
 作品設定、前半パートである**第1話〜第25話**の詳細プロット、マーケティングアセットを作成せよ。
 前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
 **重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
-**重要: detailed_blueprint には、各話500文字以上で、具体的なセリフ、アクション、情景、そして前話からの滑らかな接続（ブリッジ）を詳細に記述せよ。**
 **重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
 
 Output strictly in JSON format following this schema:
@@ -371,19 +338,15 @@ Output strictly in JSON format following this schema:
 """,
         "plot_phase2": """
 あなたはWeb小説の神級プロットアーキテクトです。
-現在、第{current_ep}話まで執筆が完了しました。
-最新の世界状態（Bible）と物語の展開に基づき、**第{current_ep_plus_1}話〜第50話（最終話）**のプロットを再構成してください。
+現在、第25話まで執筆が完了しました。
+最新の世界状態（Bible）と物語の展開に基づき、**第26話〜第50話（最終話）**のプロットを再構成してください。
 
-【Current Bible State】
-{bible_context}
-
-【Recent Story Flow】
+【Recent Story Flow (Summaries)】
 {history_summ}
 
-【Task】
+【Task: Phase 2 (Ep 26-50)】
 後半の展開を劇的に、かつ整合性が取れるように作成せよ。
 **重要: 各エピソードは「Next Hook」で終わらせること。**
-**重要: detailed_blueprint には、各話500文字以上で、具体的なセリフ、アクション、情景、そして前話からの滑らかな接続（ブリッジ）を詳細に記述せよ。**
 **重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
 
 Output strictly in JSON format following this schema:
@@ -398,1351 +361,417 @@ Output strictly in JSON format following this schema:
 【Pacing Instruction】
 {pacing_instruction}
 
-【Role: Novelist ({current_model})】
-以下の詳細な設計図（Blueprint）に基づき、**第{ep_num}話**の本文を一括執筆し、結果をJSON形式で出力せよ。
+【Role: Novelist (Gemma 3)】
+以下のプロットに基づき、**第{ep_num}話**の本文を一括執筆し、結果をJSON形式で出力せよ。
 1. `content`: 本文 (1500-2000文字)
 2. `summary`: 次話へ繋ぐための要約
 3. `next_world_state`: この話で確定した設定・変化した状態・解決した謎・新たな伏線を反映した最新のBible状態
 
-【ネタバレ注意：まだ書いてはいけない裏設定リスト】
-以下の伏線は将来のためのものであり、本エピソードで触れることは固く禁ずる。プロットに指示がない限り、存在すら匂わせるな。
-{pending_foreshadowing}
-
-{must_resolve_instruction}
-
-【Bridge Context (前話からの接続・必須)】
-以下の文脈から1秒も時間を飛ばさず、直結するように書き始めよ。
-{prev_context_text}
-
-【プロット遵守の絶対原則 (Strict Blueprint Adherence)】
-以下の「Detailed Blueprint」に含まれないイベント、会話、キャラの登場はすべてエラーである。
-AIの創作で話を盛るな。設計図を忠実に文章化することだけに集中せよ。
-
-【今回の設計図 (Detailed Blueprint)】
-{episode_plot_text}
-
-【World Context (Bible v{expected_version})】
+【前話からの文脈】
 {bible_context}
+
+【今回のプロット】
+{episode_plot_text}
 
 【Rewrite Instruction (Chain of Thought)】
 {rewrite_instruction}
-""",
-        "rewrite_critique": """
-【重要: 執筆やり直し命令】
-先ほどの出力は品質基準を満たさなかったため、却下されました。
-以下の「却下された原稿」と「品質保証レポート（Critique）」を熟読し、同じ過ちを犯さないように論理的に思考した上で、最高品質のエピソードを再執筆せよ。
 
-[Rejected Draft]:
-{rejected_content}
+Output Format:
+```json
+{{
+    "content": "本文...",
+    "summary": "要約...",
+    "next_world_state": {{ ... }}
+}}
+""", "rewrite_critique": """ 【重要: 執筆やり直し命令】 先ほどの出力は品質基準を満たさなかったため、却下されました。 以下の「却下された原稿」と「品質保証レポート（Critique）」を熟読し、同じ過ちを犯さないように論理的に思考した上で、最高品質のエピソードを再執筆せよ。
 
 [QA Critique]:
-- Improvement Advice: {improvement_advice}
-- Suggested Diff: {suggested_diff}
 
-上記の指摘を反映し、特に「引きの強さ」と「カクヨム訴求力」を飛躍的に高めた原稿を作成せよ。
+Improvement Advice: {improvement_advice}
 
-【カクヨム訴求力強化指令】
-以下のテクニックを使って「カクヨム訴求力」を強制的に高めよ:
-1. **敵のヘイトを倍増させよ**: 敵のセリフをより傲慢に、理不尽に書き換えろ。
-2. **過剰な演出**: 魔法やスキルの威力描写を、擬音（ドゴォォン！）を交えて3倍に誇張せよ。
-3. **賞賛のシャワー**: 周囲のキャラに、主人公を過剰なほど褒め称えさせろ。
-"""
-    }
+Suggested Diff: {suggested_diff}
 
-    def get(self, name, **kwargs):
-        if name not in self.TEMPLATES:
-            raise ValueError(f"Template '{name}' not found.")
-        return self.TEMPLATES[name].format(**kwargs)
+上記の指摘を反映し、特に「引きの強さ」と「カクヨム読者への訴求力」を飛躍的に高めた原稿を作成せよ。 """ }
 
-# ==========================================
-# Formatter Class (Regex-based)
-# ==========================================
-class TextFormatter:
-    def __init__(self, engine):
-        self.engine = engine # 互換性のために保持するが使用しない
+def get(self, name, **kwargs):
+    return self.TEMPLATES[name].format(**kwargs)
+==========================================
+4. Database & Utility
+==========================================
+class DatabaseManager: def init(self, db_path): self.db_path = db_path self.queue = asyncio.Queue()
 
-    def _clean_kakuyomu_style(self, text):
-        """カクヨム向け物理整形: 強制空行挿入"""
-        # 地の文3行以上で強制空行
-        lines = text.split('\n')
-        formatted_lines = []
-        narrative_count = 0
-        
-        for line in lines:
-            stripped = line.strip()
-            
-            # 空行の場合
-            if not stripped:
-                formatted_lines.append(line)
-                narrative_count = 0
-                continue
-                
-            # 会話文判定（カギ括弧で始まるか）
-            is_dialogue = stripped.startswith(('「', '『', '（'))
-            
-            if not is_dialogue:
-                narrative_count += 1
-            else:
-                narrative_count = 0 # 会話文でリセット
-            
-            # 3行連続した場合、その行の前に空行を入れる（読みやすさのため）
-            if narrative_count >= 3:
-                formatted_lines.append('') # 空行挿入
-                narrative_count = 1 # カウントリセット（この行が新たなブロックの1行目となる）
-            
-            formatted_lines.append(line)
-            
-        return "\n".join(formatted_lines)
+async def start(self):
+    asyncio.create_task(self._worker())
+    await self._init_tables()
 
-    async def format(self, text, k_dict=None):
-        if not text: return ""
-        
-        # 1. 三点リーダーの正規化 (…1つや...を……に)
-        text = re.sub(r'…{1,}', '……', text)
-        text = re.sub(r'\.{2,}', '……', text)
-        # 奇数個の……を偶数個に補正（簡易的）
-        text = text.replace('………', '……') 
-        
-        # 2. 感嘆符・疑問符の後のスペース挿入
-        # 閉じ括弧の前以外で、全角スペースがない場合に挿入
-        text = re.sub(r'([！？])(?![\s　」』])', r'\1　', text)
-        
-        # 3. 連続する空行の削除（最大1行まで）
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        
-        # 4. 行頭・行末の空白削除
-        lines = [line.rstrip() for line in text.splitlines()]
-        text = "\n".join(lines)
-        
-        # 5. 不要なMarkdown削除
-        text = re.sub(r'```.*?```', '', text, flags=re.DOTALL)
-        text = text.replace('**', '').replace('##', '')
+async def _init_tables(self):
+    queries = [
+        "CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY, title TEXT, genre TEXT, style_dna TEXT, marketing_data TEXT, synopsis TEXT, special_ability TEXT, concept TEXT, target_eps INTEGER, status TEXT, created_at TEXT)",
+        "CREATE TABLE IF NOT EXISTS bible (id INTEGER PRIMARY KEY, book_id INTEGER, settings TEXT, version INTEGER, last_updated TEXT)",
+        "CREATE TABLE IF NOT EXISTS plot (book_id INTEGER, ep_num INTEGER, title TEXT, setup TEXT, conflict TEXT, climax TEXT, resolution TEXT, scenes TEXT, tension INTEGER, stress INTEGER, catharsis INTEGER, status TEXT, main_event TEXT, PRIMARY KEY(book_id, ep_num))",
+        "CREATE TABLE IF NOT EXISTS chapters (book_id INTEGER, ep_num INTEGER, title TEXT, content TEXT, summary TEXT, ai_insight TEXT, world_state TEXT, created_at TEXT, PRIMARY KEY(book_id, ep_num))",
+        "CREATE TABLE IF NOT EXISTS characters (id INTEGER PRIMARY KEY, book_id INTEGER, name TEXT, role TEXT, registry_data TEXT, monologue_style TEXT)"
+    ]
+    for q in queries: await self.execute(q)
 
-        # 6. カクヨム物理整形
-        text = self._clean_kakuyomu_style(text)
+async def execute(self, query, params=()):
+    future = asyncio.get_running_loop().create_future()
+    await self.queue.put((query, params, future))
+    return await future
 
-        return text.strip()
+async def fetch_one(self, query, params=()):
+    def _fetch():
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return dict(row) if (row := conn.execute(query, params).fetchone()) else None
+    return await asyncio.to_thread(_fetch)
 
-# ==========================================
-# 1. データベース管理
-# ==========================================
-class DatabaseManager:
-    def __init__(self, db_path):
-        self.db_path = db_path
-        self.queue = asyncio.Queue()
-        self._worker_task = None
+async def fetch_all(self, query, params=()):
+    def _fetch():
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            return [dict(row) for row in conn.execute(query, params).fetchall()]
+    return await asyncio.to_thread(_fetch)
 
-    async def start(self):
-        self._worker_task = asyncio.create_task(self._worker())
-        await self._init_tables_async()
-
-    async def _init_tables_async(self):
-        await self.execute('''
-                CREATE TABLE IF NOT EXISTS books (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT, genre TEXT, concept TEXT,
-                    synopsis TEXT, catchcopy TEXT, target_eps INTEGER, style_dna TEXT,
-                    target_audience TEXT, special_ability TEXT DEFAULT '',
-                    status TEXT DEFAULT 'active', created_at TEXT, marketing_data TEXT, sub_plots TEXT
-                );
-            ''')
-        # Bibleテーブル更新: version追加
-        await self.execute('''
-                CREATE TABLE IF NOT EXISTS bible (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, 
-                    settings TEXT, revealed TEXT,
-                    revealed_mysteries TEXT, pending_foreshadowing TEXT,
-                    dependency_graph TEXT,
-                    version INTEGER DEFAULT 0,
-                    last_updated TEXT,
-                    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-                );
-            ''')
-        # plotテーブル更新: stress, catharsis追加, detailed_blueprint追加
-        # Note: existing DBs will need migration or recreate. This assumes fresh start or handles error.
+async def _worker(self):
+    conn = sqlite3.connect(self.db_path, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    while True:
+        query, params, future = await self.queue.get()
         try:
-            await self.execute('ALTER TABLE plot ADD COLUMN detailed_blueprint TEXT')
-        except: pass
-
-        await self.execute('''
-                CREATE TABLE IF NOT EXISTS plot (
-                    book_id INTEGER, ep_num INTEGER, title TEXT, summary TEXT,
-                    main_event TEXT, sub_event TEXT, pacing_type TEXT,
-                    tension INTEGER DEFAULT 50, 
-                    stress INTEGER DEFAULT 0,
-                    catharsis INTEGER DEFAULT 0,
-                    cliffhanger_score INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'planned', 
-                    setup TEXT, conflict TEXT, climax TEXT, resolution TEXT,
-                    scenes TEXT, detailed_blueprint TEXT,
-                    PRIMARY KEY(book_id, ep_num),
-                    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-                );
-            ''')
-        await self.execute('''
-                CREATE TABLE IF NOT EXISTS chapters (
-                    book_id INTEGER, ep_num INTEGER, title TEXT, content TEXT,
-                    score_story INTEGER, killer_phrase TEXT, reader_retention_score INTEGER,
-                    ending_emotion TEXT, discomfort_score INTEGER DEFAULT 0, tags TEXT,
-                    ai_insight TEXT, retention_data TEXT, summary TEXT, world_state TEXT,
-                    created_at TEXT, PRIMARY KEY(book_id, ep_num),
-                    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-                );
-            ''')
-        await self.execute('''
-                CREATE TABLE IF NOT EXISTS characters (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, book_id INTEGER, name TEXT, role TEXT, registry_data TEXT, monologue_style TEXT,
-                    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
-                );
-            ''')
-        
-        # インデックスの作成
-        await self.execute('CREATE INDEX IF NOT EXISTS idx_plot_book_ep ON plot(book_id, ep_num);')
-        await self.execute('CREATE INDEX IF NOT EXISTS idx_chapters_book_ep ON chapters(book_id, ep_num);')
-
-    def _convert_params(self, params):
-        new_params = []
-        for p in params:
-            if isinstance(p, BaseModel):
-                new_params.append(p.model_dump_json(ensure_ascii=False))
-            elif isinstance(p, (dict, list)):
-                new_params.append(json.dumps(p, ensure_ascii=False))
+            cursor = conn.execute(query, params)
+            if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "REPLACE")):
+                conn.commit()
+                future.set_result(cursor.lastrowid)
             else:
-                new_params.append(p)
-        return tuple(new_params)
-
-    async def execute(self, query, params=()):
-        # パラメータの自動JSON変換
-        converted_params = self._convert_params(params)
-        future = asyncio.get_running_loop().create_future()
-        await self.queue.put((query, converted_params, future))
-        return await future
-
-    async def save_model(self, query, params):
-        """PydanticモデルやDictを自動的にJSON文字列に変換して保存する"""
-        return await self.execute(query, params)
-
-    async def load_model(self, query, params, model_class: Type[BaseModel]):
-        """クエリ結果を指定されたPydanticモデルとしてロードする"""
-        row = await self.fetch_one(query, params)
-        if not row: return None
-        # 行データ全体をモデルにマッピングできない場合（JSONカラム単体の取得など）を考慮し
-        # 戻り値の形式に応じて処理を分岐
-        if len(row) == 1 and list(row.keys())[0] in row: # 単一カラム取得の場合
-             val = list(row.values())[0]
-             if isinstance(val, str):
-                 try:
-                     return model_class.model_validate_json(val)
-                 except: pass
-        
-        # 行全体を辞書として渡す
-        return model_class.model_validate(dict(row))
-
-    async def _worker(self):
-        conn = sqlite3.connect(self.db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA foreign_keys = ON;") # 外部キー制約の有効化
-        while True:
-            query, params, future = await self.queue.get()
-            try:
-                is_write = query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "REPLACE", "CREATE", "DROP", "ALTER"))
-                cursor = conn.execute(query, params)
-                if is_write:
-                    conn.commit()
-                    future.set_result(cursor.lastrowid)
-                else:
-                    future.set_result(None) 
-            except Exception as e:
-                future.set_exception(e)
-            finally:
-                self.queue.task_done()
-
-    async def fetch_all(self, query, params=()):
-        def _fetch():
-            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
-                conn.row_factory = sqlite3.Row
-                conn.execute("PRAGMA foreign_keys = ON;")
-                return [dict(row) for row in conn.execute(query, params).fetchall()]
-        return await asyncio.to_thread(_fetch)
-            
-    async def fetch_one(self, query, params=()):
-        def _fetch():
-            with sqlite3.connect(self.db_path, check_same_thread=False) as conn:
-                conn.row_factory = sqlite3.Row
-                conn.execute("PRAGMA foreign_keys = ON;")
-                row = conn.execute(query, params).fetchone()
-                return dict(row) if row else None
-        return await asyncio.to_thread(_fetch)
-
+                future.set_result(None)
+        except Exception as e:
+            future.set_exception(e)
+        finally:
+            self.queue.task_done()
 db = DatabaseManager(DB_FILE)
 
-# ==========================================
-# Repository Pattern
-# ==========================================
-class NovelRepository:
-    def __init__(self, db_manager):
-        self.db = db_manager
+==========================================
+5. Core Classes (Gemini / Gemma Logic)
+==========================================
+class TrendAnalyst: """Gemma 3 (12B) を使用してトレンド分析""" def init(self, engine): self.engine = engine
 
-    async def create_novel(self, data, genre, style_dna_str):
-        if isinstance(data, dict): data_dict = data
-        else: data_dict = data.model_dump()
-        
-        dna = json.dumps({
-            "tone": data_dict['mc_profile']['tone'], 
-            "personality": data_dict['mc_profile'].get('personality', ''),
-            "style_mode": style_dna_str,
-            "pov_type": "一人称"
-        }, ensure_ascii=False)
-        
-        ability_val = data_dict['mc_profile'].get('ability', '')
-        
-        marketing_data_model = data.marketing_assets if isinstance(data, BaseModel) else MarketingAssets.model_validate(data_dict['marketing_assets'])
-
-        # target_eps を 50 に設定
-        bid = await self.db.save_model(
-            "INSERT INTO books (title, genre, synopsis, concept, target_eps, style_dna, status, special_ability, created_at, marketing_data) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (
-                data_dict['title'], 
-                genre, 
-                data_dict['synopsis'], 
-                data_dict['concept'], 
-                50, 
-                dna, 
-                'active', 
-                ability_val, 
-                datetime.datetime.now().isoformat(),
-                marketing_data_model
-            )
-        )
-        
-        registry_json = json.dumps(data_dict['mc_profile'], ensure_ascii=False)
-        monologue_val = data_dict['mc_profile'].get('monologue_style', '')
-        
-        await self.db.save_model("INSERT INTO characters (book_id, name, role, registry_data, monologue_style) VALUES (?,?,?,?,?)", 
-                          (bid, data_dict['mc_profile']['name'], '主人公', registry_json, monologue_val))
-        
-        await self.db.save_model("INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
-                             (bid, "{}", [], [], [], "{}", 0, datetime.datetime.now().isoformat()))
-
-        saved_plots = []
-        for p in data_dict['plots']:
-            full_title = f"第{p['ep_num']}話 {p['title']}"
-            main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
-            scenes_list = p.get('scenes', []) 
-            
-            await self.db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes, detailed_blueprint)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (bid, p['ep_num'], full_title, main_ev, 
-                 p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'),
-                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list, p.get('detailed_blueprint', ''))
-            )
-            saved_plots.append(p)
-        return bid, saved_plots
-
-    async def add_plots(self, book_id, data_p2):
-        saved_plots = []
-        for p in data_p2['plots']:
-            full_title = f"第{p['ep_num']}話 {p['title']}"
-            main_ev = f"{p.get('setup','')}->{p.get('climax','')}"
-            scenes_list = p.get('scenes', [])
-            
-            await self.db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes, detailed_blueprint)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (book_id, p['ep_num'], full_title, main_ev, 
-                 p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'), 
-                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list, p.get('detailed_blueprint', ''))
-            )
-            saved_plots.append(p)
-        return saved_plots
-
-# ==========================================
-# 2. Dynamic Bible Manager (Optimistic Locking)
-# ==========================================
-class DynamicBibleManager:
-    def __init__(self, book_id):
-        self.book_id = book_id
-        self._cache = {} 
-    
-    async def get_current_state(self) -> (WorldState, int):
-        # Always fetch fresh for locking context
-        row = await db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
-        if not row:
-            state = WorldState(settings="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
-            return state, 0
-        try:
-            state = WorldState(
-                settings=row['settings'] if row['settings'] else "{}",
-                revealed=json.loads(row['revealed']) if row['revealed'] else [],
-                revealed_mysteries=json.loads(row['revealed_mysteries']) if row.get('revealed_mysteries') else [],
-                pending_foreshadowing=json.loads(row['pending_foreshadowing']) if row.get('pending_foreshadowing') else [],
-                dependency_graph=row['dependency_graph'] if row['dependency_graph'] else "{}"
-            )
-            return state, row.get('version', 0)
-        except:
-            state = WorldState(settings="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
-            return state, 0
-
-    async def get_prompt_context(self) -> str:
-        state, ver = await self.get_current_state()
-        return f"""
-【WORLD STATE (Current v{ver})】
-[SETTINGS]: {state.settings}
-[REVEALED]: {json.dumps(state.revealed, ensure_ascii=False)}
-[SOLVED MYSTERIES]: {json.dumps(state.revealed_mysteries, ensure_ascii=False)}
-[PENDING FORESHADOWING (FOR FUTURE USE ONLY)]: {json.dumps(state.pending_foreshadowing, ensure_ascii=False)}
-[DEPENDENCY GRAPH (Resolution Plan)]: {state.dependency_graph}
-"""
-
-class BibleSynchronizer:
-    def __init__(self, book_id):
-        self.book_id = book_id
-        self.bible_manager = DynamicBibleManager(book_id)
-
-    async def save_atomic(self, chapter_data: Dict[str, Any], next_state: WorldState):
-        """
-        本文生成と同時にBibleとChapterをアトミックに更新する。
-        """
-        # 1. 現在のBible状態を取得
-        current_state, current_ver = await self.bible_manager.get_current_state()
-
-        # 2. Bible状態のマージ (Delta Apply)
-        new_revealed = list(set(current_state.revealed + next_state.revealed))
-        new_mysteries = list(set(current_state.revealed_mysteries + next_state.revealed_mysteries))
-        new_foreshadowing = list(set(current_state.pending_foreshadowing + next_state.pending_foreshadowing))
-        
-        # Merge Settings (JSON merge)
-        try:
-            curr_settings = json.loads(current_state.settings)
-            next_settings = json.loads(next_state.settings)
-            curr_settings.update(next_settings)
-            merged_settings = json.dumps(curr_settings, ensure_ascii=False)
-        except:
-            merged_settings = next_state.settings
-
-        # Dependency Graph (Overwrite or Update)
-        try:
-            curr_dep = json.loads(current_state.dependency_graph)
-            next_dep = json.loads(next_state.dependency_graph)
-            curr_dep.update(next_dep)
-            merged_graph = json.dumps(curr_dep, ensure_ascii=False)
-        except:
-            merged_graph = next_state.dependency_graph
-
-        new_version = current_ver + 1
-
-        # 3. Formatterの適用（Chapter保存用）
-        formatter = TextFormatter(None)
-        # Fetch keywords for formatting
-        mc = await db.fetch_one("SELECT registry_data FROM characters WHERE book_id=? AND role='主人公'", (self.book_id,))
-        k_dict = {}
-        if mc and mc['registry_data']:
-            try: 
-                reg = json.loads(mc['registry_data'])
-                k_str = reg.get('keyword_dictionary', '{}')
-                k_dict = json.loads(k_str) if isinstance(k_str, str) else k_str
-            except: pass
-        
-        content_formatted = await formatter.format(chapter_data['content'], k_dict=k_dict)
-        
-        # 4. DBへのアトミック更新（擬似的なトランザクションとして連続実行）
-        # Bible Insert
-        await db.save_model(
-            "INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
-            (
-                self.book_id,
-                merged_settings,        
-                new_revealed, 
-                new_mysteries,
-                new_foreshadowing,
-                merged_graph,
-                new_version,
-                datetime.datetime.now().isoformat()
-            )
-        )
-        
-        # Chapter Insert/Update
-        await db.save_model(
-            """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (self.book_id, chapter_data['ep_num'], chapter_data.get('title', f"第{chapter_data['ep_num']}話"), content_formatted, chapter_data.get('summary', ''), '', next_state, datetime.datetime.now().isoformat())
-        )
-        
-        # Plot Status Update
-        await db.save_model("UPDATE plot SET status='completed' WHERE book_id=? AND ep_num=?", (self.book_id, chapter_data['ep_num']))
-
-        return new_version
-
-# ==========================================
-# 4. New Classes (TrendAnalyst, QA, Pacing)
-# ==========================================
-
-class TrendAnalyst:
-    def __init__(self, engine):
-        self.engine = engine
-
-    async def get_dynamic_seed(self) -> dict:
-        print("TrendAnalyst: Scanning Kakuyomu Global Trends via API...")
-        # 改善⑦ カクヨム特化トレンド分析
-        prompt = self.engine.prompt_manager.get("trend_analysis_prompt")
-        try:
-            res = await self.engine._generate_with_retry(
-                model=MODEL_MARKETING,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                )
-            )
-            # テキストパース処理
-            text = res.text.strip()
-            
-            # Robust extraction using regex
-            match = re.search(r'(\{.*\})', text, re.DOTALL)
-            if match:
-                text = match.group(1)
-            
-            try:
-                seed = json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                # 制御文字削除 (改行・タブは残す)
-                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                seed = json.loads(text, strict=False)
-
-            print(f"★ Trend Detected: {seed.get('genre', 'Unknown')} - {seed.get('hook_text', 'No hook')}")
-            return seed
-        except Exception as e:
-            print(f"Trend Analysis Failed: {e}. Fallback to default.")
-            return {
-                "genre": "現代ダンジョン",
-                "keywords": "配信, 事故, 無双",
-                "personality": "冷静沈着",
-                "tone": "俺",
-                "hook_text": "配信切り忘れで世界最強がバレる",
-                "style": "style_web_standard"
-            }
-
-class QualityAssuranceEngine:
-    def __init__(self, engine):
-        self.engine = engine
-
-    # 統合⑥ 総合検閲エンジンの構築
-    async def evaluate(self, content: str, bible_manager: DynamicBibleManager) -> QualityReport:
-        state, _ = await bible_manager.get_current_state()
-        prompt = self.engine.prompt_manager.get(
-            "qa_evaluation_prompt",
-            settings=state.settings,
-            content=content[:5000]
-        )
-        try:
-            # 修正: Gemmaモデルの場合はMIMEタイプを指定しない
-            qa_config = {}
-            if "gemini" in MODEL_PRO.lower() and "gemma" not in MODEL_PRO.lower():
-                qa_config["response_mime_type"] = "application/json"
-            
-            res = await self.engine._generate_with_retry(
-                model=MODEL_PRO, # Gemma-3-27b
-                contents=prompt,
-                config=types.GenerateContentConfig(**qa_config)
-            )
-            
-            # テキストパース処理
-            text = res.text.strip()
-            
-            # Robust extraction
-            match = re.search(r'(\{.*\})', text, re.DOTALL)
-            if match:
-                text = match.group(1)
-            
-            try:
-                data = json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                data = json.loads(text, strict=False)
-            
-            return QualityReport.model_validate(data)
-            
-        except Exception as e:
-            print(f"QA Check Failed: {e}")
-            return QualityReport(
-                is_consistent=True, fatal_errors=[], consistency_score=50,
-                cliffhanger_score=50, kakuyomu_appeal_score=50,
-                stress_level=0, catharsis_level=0,
-                improvement_advice="QA Error",
-                suggested_diff="QA Error"
-            )
-
-class PacingGraph:
-    @staticmethod
-    async def analyze(book_id: int, current_ep: int) -> Dict[str, Any]:
-        rows = await db.fetch_all(
-            "SELECT tension, stress, catharsis FROM plot WHERE book_id=? AND ep_num < ? ORDER BY ep_num DESC LIMIT 5",
-            (book_id, current_ep)
-        )
-        history = [dict(r) for r in rows][::-1]
-        
-        # 改善⑧ 感情曲線型 pacing
-        if not history:
-            return {"type": "normal", "temperature": 0.8, "instruction": "導入部。読者の興味を惹きつけよ。", "force_catharsis": False}
-        
-        # Calculate Pacing using the formula
-        # Pacing = (Tension + Catharsis) / (Stress + 1) to avoid div by zero
-        # Check consecutive stress
-        consecutive_stress_eps = 0
-        for h in history[::-1]: # Reverse to check from most recent
-            if h.get('stress', 0) > 60 and h.get('catharsis', 0) < 40:
-                consecutive_stress_eps += 1
-            else:
-                break
-        
-        force_catharsis = False
-        instruction = "標準的な物語進行。"
-        
-        if consecutive_stress_eps >= 3:
-            force_catharsis = True
-            instruction = "【緊急指令: 強制カタルシス】読者のストレスが限界に達している。この回で必ず大逆転、ざまぁ、あるいは圧倒的な無双を行い、ストレスを一気に解消せよ。"
-        
-        return {
-            "type": "catharsis_required" if force_catharsis else "normal",
-            "temperature": 0.85 if force_catharsis else 0.8,
-            "instruction": instruction,
-            "force_catharsis": force_catharsis
-        }
-
-# ==========================================
-# 5. ULTRA Engine (Autopilot)
-# ==========================================
-class UltraEngine:
-    def __init__(self, api_key):
-        self.client = genai.Client(api_key=api_key) if api_key else None
-        # AdaptiveRateLimiter Removed
-        self.safety_settings = [
-            types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
-            types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
-        ]
-        self.prompt_manager = PromptManager()
-        self.repo = NovelRepository(db)
-        self.trend_analyst = TrendAnalyst(self)
-        self.qa_engine = QualityAssuranceEngine(self)
-        self.formatter = TextFormatter(self)
-
-    def _generate_system_rules(self, char_registry: CharacterRegistry, style="style_web_standard"):
-        style_def = STYLE_DEFINITIONS.get(style, STYLE_DEFINITIONS["style_web_standard"])
-        relations_str = char_registry.relations
-        dialogue_samples_str = char_registry.dialogue_samples
-        
-        return self.prompt_manager.get(
-            "system_rules",
-            mc_name=char_registry.name,
-            mc_tone=char_registry.tone,
-            mc_personality=char_registry.personality,
-            pronouns=char_registry.pronouns, 
-            keywords=char_registry.keyword_dictionary, 
-            monologue_style=char_registry.monologue_style,
-            relations=relations_str,
-            mc_dialogue_samples=dialogue_samples_str,
-            style_name=style_def["name"],
-            style_instruction=style_def["instruction"]
-        )
-
-    async def _generate_with_retry(self, model, contents, config):
-        retries = 0
-        max_retries = 8
-        base_delay = 5.0
-
-        while True:
-            try:
-                return await self.client.aio.models.generate_content(
-                    model=model, 
-                    contents=contents, 
-                    config=config
-                )
-            except Exception as e:
-                if retries >= max_retries:
-                    raise e
-                
-                # Simple exponential backoff
-                delay = (base_delay * (2 ** retries)) + random.uniform(0.1, 1.0)
-                print(f"⚠️ API Error: {e}. Retry {retries+1}/{max_retries} in {delay:.2f}s...")
-                await asyncio.sleep(delay)
-                retries += 1
-
-    def _parse_json_response(self, text: str) -> Dict[str, Any]:
-        """
-        AIの出力からJSONを堅牢に抽出・正規化するヘルパー関数
-        エラー救済措置を含む
-        """
-        # 1. Markdownの削除
-        text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'^```\s*', '', text, flags=re.MULTILINE)
-        text = re.sub(r'```$', '', text, flags=re.MULTILINE)
-        text = text.strip()
-
-        # 2. 制御文字の削除（改行・タブ以外）
-        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-
-        data = None
-
-        # Try Method A: Direct Parse
-        try:
-            data = json.loads(text, strict=False)
-        except:
-            # Try Method B: Regex Extraction
-            match = re.search(r'(\{.*\})', text, re.DOTALL)
-            if match:
-                try:
-                    data = json.loads(match.group(1), strict=False)
-                except:
-                    pass
-        
-        # 3. NOVEL FALLBACK: JSONパースに失敗したが、テキストが小説（会話文など）を含んでいる場合
-        if data is None:
-            if "「" in text or "」" in text or len(text) > 100:
-                print("⚠️ Warning: JSON parse failed, but novel text detected. Using RAW TEXT fallback.")
-                data = {
-                    "content": text,
-                    "summary": text[:200] + "...", # 簡易要約
-                    "next_world_state": {
-                        "settings": "{}",
-                        "revealed": [],
-                        "revealed_mysteries": [],
-                        "pending_foreshadowing": [],
-                        "dependency_graph": "{}"
-                    }
-                }
-            else:
-                # 救済不可能
-                raise ValueError(f"Failed to parse JSON and text does not look like a novel snippet. Length: {len(text)}")
-
-        # 4. キーの正規化 (Pydantic対応)
-        # [settings] -> settings のように装飾を削除
-        normalized_data = {}
-        for k, v in data.items():
-            # アルファベットとアンダースコア以外を削除して小文字化
-            clean_k = re.sub(r'[^a-zA-Z0-9_]', '', k).lower()
-            normalized_data[clean_k] = v
-        
-        # 元データとマージ（正規化キーを優先）
-        final_data = data.copy()
-        final_data.update(normalized_data)
-
-        # 5. WorldState固有の修正: Dict -> JSON String への強制変換 + 必須項目の補完
-        if 'next_world_state' in final_data:
-            ws = final_data['next_world_state']
-            if isinstance(ws, dict):
-                ws_normalized = {}
-                for k, v in ws.items():
-                    # WorldState内部のキーも正規化
-                    clean_k = re.sub(r'[^a-zA-Z0-9_]', '', k).lower()
-                    ws_normalized[clean_k] = v
-                
-                # キーのゆらぎ吸収 (graphresolutionplan -> dependency_graph)
-                keys_to_check = list(ws_normalized.keys())
-                for k in keys_to_check:
-                    if 'dependency' in k and 'graph' in k:
-                        if k != 'dependency_graph':
-                             ws_normalized['dependency_graph'] = ws_normalized.pop(k)
-                
-                # settingsなどが辞書なら文字列化
-                for field in ['settings', 'dependency_graph']:
-                    # 必須項目の欠損対策: 存在しなければデフォルト値を入れる
-                    if field not in ws_normalized:
-                        ws_normalized[field] = "{}"
-                    
-                    if field in ws_normalized and isinstance(ws_normalized[field], (dict, list)):
-                        ws_normalized[field] = json.dumps(ws_normalized[field], ensure_ascii=False)
-                
-                final_data['next_world_state'] = ws_normalized
-
-        return final_data
-
-    # ---------------------------------------------------------
-    # Core Logic
-    # ---------------------------------------------------------
-
-    async def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
-        """第1段階: 1-25話のプロット生成"""
-        print("Step 1: Hyper-Resolution Plot Generation Phase 1 (Ep 1-25)...")
-        
-        style_name = STYLE_DEFINITIONS.get(style, {"name": style}).get("name")
-        structure_schema = NovelStructure.model_json_schema()
-        
-        prompt = self.prompt_manager.get(
-            "plot_phase1",
-            genre=genre,
-            style_name=style_name,
-            mc_personality=mc_personality,
-            mc_tone=mc_tone,
-            keywords=keywords,
-            schema=json.dumps(structure_schema, ensure_ascii=False)
-        )
-
-        try:
-            res = await self._generate_with_retry(
-                model=MODEL_ULTRALONG,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    safety_settings=self.safety_settings
-                )
-            )
-            text_content = res.text.strip()
-            
-            try:
-                data_dict = self._parse_json_response(text_content)
-            except Exception:
-                # Fallback simplistic parsing if robust fails for structure specific reasons
-                match = re.search(r'(\{.*\})', text_content, re.DOTALL)
-                text = match.group(1) if match else text_content
-                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                data_dict = json.loads(text, strict=False)
-            
-            # Pydanticバリデーション前にデータ補正 (JSON文字列化)
-            if 'mc_profile' in data_dict:
-                 if isinstance(data_dict['mc_profile'].get('pronouns'), dict):
-                       data_dict['mc_profile']['pronouns'] = json.dumps(data_dict['mc_profile']['pronouns'], ensure_ascii=False)
-                 if isinstance(data_dict['mc_profile'].get('keyword_dictionary'), dict):
-                       data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
-                 if isinstance(data_dict['mc_profile'].get('relations'), dict):
-                       data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
-                 if isinstance(data_dict['mc_profile'].get('dialogue_samples'), dict):
-                       data_dict['mc_profile']['dialogue_samples'] = json.dumps(data_dict['mc_profile']['dialogue_samples'], ensure_ascii=False)
-
-            return NovelStructure.model_validate(data_dict) # Validation here
-        except Exception as e:
-            print(f"Plot Phase 1 Error: {e}")
-            return None
-
-    async def regenerate_future_plots(self, book_id, current_ep=25):
-        """第26話以降のプロットを動的に再構成する"""
-        print(f"Regenerating Future Plots (Ep {current_ep+1}-50) based on current Bible state...")
-        
-        bible_manager = DynamicBibleManager(book_id)
-        bible_context = await bible_manager.get_prompt_context()
-        
-        chapters = await db.fetch_all(f"SELECT summary FROM chapters WHERE book_id=? AND ep_num <= ? ORDER BY ep_num", (book_id, current_ep))
-        history_summ = "\n".join([f"- {c['summary']}" for c in chapters[-5:]]) # 直近5話分のみ
-
-        structure_schema = Phase2Structure.model_json_schema()
-
-        prompt = self.prompt_manager.get(
-            "plot_phase2",
-            current_ep=current_ep,
-            current_ep_plus_1=current_ep+1,
-            bible_context=bible_context,
-            history_summ=history_summ,
-            schema=json.dumps(structure_schema, ensure_ascii=False)
-        )
-        
-        try:
-            res = await self._generate_with_retry(
-                model=MODEL_ULTRALONG,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    safety_settings=self.safety_settings
-                )
-            )
-            text_content = res.text.strip()
-            return self._parse_json_response(text_content)
-
-        except Exception as e:
-            print(f"Regenerate Plots Error: {e}")
-            return None
-
-    async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
-        """
-        1エピソード1リクエスト化: 本文・要約・Bible更新を一括実行
-        総合検閲エンジンによるリライトループ搭載
-        """
-        all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
-        target_plots = [p for p in all_plots if start_ep <= p.get('ep_num', -1) <= end_ep]
-        if not target_plots: return None
-
-        full_chapters = []
-        bible_synchronizer = BibleSynchronizer(book_data['book_id'])
-        bible_manager = bible_synchronizer.bible_manager
-        
-        # CharacterRegistry 構築
-        try:
-            char_registry = CharacterRegistry(**book_data['mc_profile'])
-        except:
-            char_registry = CharacterRegistry(name="主人公", tone="標準", personality="", ability="", monologue_style="", pronouns="{}", keyword_dictionary="{}", relations="{}", dialogue_samples="{}")
-        
-        # 前話の文脈取得
-        prev_ep_row = await db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
-        # 修正: ブリッジ用文脈の強化。直近の500文字を取得し、プロンプトで「ここから繋げ」と指示する。
-        prev_context_text = prev_ep_row['content'][-500:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
-
-        system_rules = self._generate_system_rules(char_registry, style=style_dna_str)
-        writing_rules = self.prompt_manager.get("writing_rules")
-        cliffhanger_protocol = self.prompt_manager.get("cliffhanger_protocol")
-        
-        for plot in target_plots:
-            ep_num = plot['ep_num']
-            print(f"Hyper-Narrative Engine Writing Ep {ep_num} (Integrated Quality Assurance Mode)...")
-            
-            # Pacing Graph Analysis
-            pacing_data = await PacingGraph.analyze(book_data['book_id'], ep_num)
-            pacing_instruction = pacing_data['instruction']
-            gen_temp = pacing_data['temperature']
-
-            current_model = target_model
-            if (1 <= ep_num <= 5) or ep_num == 50 or plot.get('tension', 50) >= 80:
-                current_model = MODEL_PRO
-            
-            scenes_str = ""
-            if isinstance(plot.get('scenes'), list):
-                for s in plot['scenes']:
-                    # Handle both Dict and SceneDetail object
-                    s_dict = s.model_dump() if hasattr(s, 'model_dump') else s
-                    scenes_str += f"- {s_dict.get('location','')}: {s_dict.get('action','')} ({s_dict.get('dialogue_point','')} - {s_dict.get('role', '')})\n"
-
-            # 修正: 詳細プロット(detailed_blueprint)の利用
-            blueprint_str = plot.get('detailed_blueprint', '')
-            if not blueprint_str:
-                blueprint_str = "（詳細プロットなし。標準構成で執筆せよ）"
-
-            episode_plot_text = f"""
-【Episode Title】{plot['title']}
-【Detailed Blueprint (500文字以上の詳細設計図)】
-{blueprint_str}
-
-【Setup】 {plot.get('setup', '')}
-【Conflict】 {plot.get('conflict', '')}
-【Climax】 {plot.get('climax', '')}
-【Next Hook (No Resolution)】 {plot.get('next_hook', '')}
-【Scenes】
-{scenes_str}
-"""
-            # Optimistic Lock: Get Version BEFORE writing
-            world_state, expected_version = await bible_manager.get_current_state()
-            bible_context = await bible_manager.get_prompt_context()
-            
-            entity_context = char_registry.get_context_prompt()
-
-            must_resolve = []
-            try:
-                dep_graph = json.loads(world_state.dependency_graph)
-                for fs_id, target_ep in dep_graph.items():
-                    if target_ep == ep_num:
-                        must_resolve.append(fs_id)
-            except: pass
-            
-            must_resolve_instruction = ""
-            if must_resolve:
-                must_resolve_instruction = f"\n【IMPORTANT: Fulfilling Foreshadowing】\n以下の伏線を本エピソードで必ず回収・言及せよ: {', '.join(must_resolve)}"
-
-            # リライトループ用変数
-            retry_count = 0
-            if 1 <= ep_num <= 5:
-                max_retries = float('inf')
-            else:
-                max_retries = 2
-            
-            # リライト時の指示（初期値は引数から、または空）
-            current_rewrite_instruction = rewrite_instruction if rewrite_instruction else "なし"
-
-            async with semaphore:
-                while retry_count <= max_retries:
-                    write_prompt = self.prompt_manager.get(
-                        "episode_writer",
-                        system_rules=system_rules,
-                        entity_context=entity_context,
-                        writing_rules=writing_rules,
-                        cliffhanger_protocol=cliffhanger_protocol,
-                        pacing_instruction=pacing_instruction,
-                        current_model=current_model,
-                        ep_num=ep_num,
-                        pending_foreshadowing=json.dumps(world_state.pending_foreshadowing, ensure_ascii=False),
-                        must_resolve_instruction=must_resolve_instruction,
-                        prev_context_text=prev_context_text,
-                        episode_plot_text=episode_plot_text,
-                        expected_version=expected_version,
-                        bible_context=bible_context,
-                        rewrite_instruction=current_rewrite_instruction
-                    )
-                    
-                    try:
-                        gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
-                        if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
-                            gen_config_args["response_mime_type"] = "application/json"
-                        
-                        # TPM 対策: 実行前に少し待つ
-                        await asyncio.sleep(5.0) 
-
-                        res = await self._generate_with_retry(
-                            model=current_model, 
-                            contents=write_prompt,
-                            config=types.GenerateContentConfig(**gen_config_args)
-                        )
-                        
-                        text_content = res.text.strip()
-                        if not text_content:
-                            raise ValueError("No text content returned from API")
-                        
-                        # ★ここが変更点: 堅牢なパーサーを呼び出す
-                        try:
-                            ep_data = self._parse_json_response(text_content)
-                        except Exception as parse_err:
-                            print(f"Parse failed, retrying... {parse_err}")
-                            retry_count += 1
-                            continue
-                        
-                        # 総合検閲エンジンによる評価
-                        qa_report = await self.qa_engine.evaluate(ep_data['content'], bible_manager)
-                        
-                        # リライト判定ループ
-                        target_cliffhanger = 88 if 1 <= ep_num <= 5 else 80
-                        target_appeal = 80 if 1 <= ep_num <= 5 else 70
-                        
-                        if (qa_report.cliffhanger_score < target_cliffhanger or qa_report.kakuyomu_appeal_score < target_appeal) and retry_count < max_retries:
-                            print(f"⚠️ Low QA Score (Cliffhanger: {qa_report.cliffhanger_score}, Appeal: {qa_report.kakuyomu_appeal_score}). Retrying...")
-                            
-                            # リライト指示をChain of Thought形式で生成
-                            current_rewrite_instruction = self.prompt_manager.get(
-                                "rewrite_critique",
-                                rejected_content=ep_data['content'],
-                                improvement_advice=qa_report.improvement_advice,
-                                suggested_diff=qa_report.suggested_diff
-                            )
-                            
-                            retry_count += 1
-                            continue # 再生成へ
-                        
-                        # 成功またはリトライ切れ
-                        full_content = ep_data['content']
-                        ep_summary = ep_data['summary']
-                        
-                        # Bible Sync (Unified Logic with Atomic Save)
-                        next_state_obj = WorldState(**ep_data['next_world_state']) if isinstance(ep_data['next_world_state'], dict) else ep_data['next_world_state']
-                        
-                        # Prepare atomic save data
-                        chapter_save_data = {
-                            'ep_num': ep_num,
-                            'title': plot['title'],
-                            'content': full_content,
-                            'summary': ep_summary
-                        }
-                        
-                        await bible_synchronizer.save_atomic(chapter_save_data, next_state_obj)
-                        
-                        prev_context_text = f"（第{ep_num}話要約）{ep_summary}\n（直近の文）{full_content[-200:]}"
-
-                        # ストレス/カタルシス値をプロットテーブルに更新
-                        await db.execute(
-                            "UPDATE plot SET stress=?, catharsis=?, cliffhanger_score=? WHERE book_id=? AND ep_num=?",
-                            (qa_report.stress_level, qa_report.catharsis_level, qa_report.cliffhanger_score, book_data['book_id'], ep_num)
-                        )
-
-                        full_chapters.append({
-                            "ep_num": ep_num,
-                            "title": plot['title'],
-                            "content": full_content,
-                            "summary": ep_summary,
-                            "world_state": ep_data.get('next_world_state', {})
-                        })
-                        break # ループ脱出
-
-                    except Exception as e:
-                        print(f"Writing Error Ep{ep_num}: {e}")
-                        if retry_count == max_retries:
-                            full_chapters.append({
-                                "ep_num": ep_num,
-                                "title": plot['title'],
-                                "content": "（生成エラーが発生しました）",
-                                "summary": "エラー",
-                                "world_state": {}
-                            })
-                        retry_count += 1
-
-        return {"chapters": full_chapters}
-
-    async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="style_web_standard"):
-        """リライト処理 - Uses QA Engine within write loop via instruction"""
-        rewritten_count = 0
-        semaphore = asyncio.Semaphore(1) 
-        eval_map = {e['ep_num']: e for e in evaluations}
-        tasks = []
-        
-        for ep_id in target_ep_ids:
-            eval_data = eval_map.get(ep_id, {})
-            # リライト指示を Chain of Thought で構築
-            # リライトターゲットの場合、前回の内容（DBにあるはず）を取得する必要があるが、
-            # ここでは簡易的に指示のみを渡す（本文がないため）
-            # もし本文があれば `rewrite_critique` テンプレートを使える
-            instruction = f"【品質保証(QA)からの修正命令】\n{eval_data.get('improvement_point', '')}\n{eval_data.get('suggested_diff', '')}"
-            
-            tasks.append(self.write_episodes(
-                book_data, ep_id, ep_id, 
-                style_dna_str=style_dna_str, 
-                target_model=MODEL_PRO, 
-                rewrite_instruction=instruction,
-                semaphore=semaphore
-            ))
-            
-        results = await asyncio.gather(*tasks)
-        for res in results:
-            if res and 'chapters' in res:
-                rewritten_count += 1
-        return rewritten_count
-
-    async def save_blueprint_to_db(self, data, genre, style_dna_str):
-        # Delegate to Repository
-        return await self.repo.create_novel(data, genre, style_dna_str)
-
-    async def save_additional_plots_to_db(self, book_id, data_p2):
-        # Delegate to Repository
-        return await self.repo.add_plots(book_id, data_p2)
-
-# ==========================================
-# Task Functions
-# ==========================================
-async def task_write_batch(engine, bid, start_ep, end_ep):
-    book_info = await db.fetch_one("SELECT * FROM books WHERE id=?", (bid,))
-    plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (bid,))
-    mc = await db.fetch_one("SELECT * FROM characters WHERE book_id=? AND role='主人公'", (bid,))
-
+async def get_dynamic_seed(self) -> dict:
+    print(f"TrendAnalyst: Scanning Trends via {MODEL_FAST}...")
+    prompt = self.engine.prompt_manager.get("trend_analysis_prompt")
     try:
-        style_dna_json = json.loads(book_info['style_dna'])
-        saved_style = style_dna_json.get('style_mode', 'style_web_standard')
-    except:
-        saved_style = 'style_web_standard'
-    
-    # Retrieve Profile from Registry Data
-    if mc and mc['registry_data']:
-        try:
-            mc_profile = json.loads(mc['registry_data'])
-        except:
-             mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}", "dialogue_samples":"{}"}
-    else:
-        mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}", "dialogue_samples":"{}"}
-
-    for p in plots:
-        if p.get('scenes'):
-            try: p['scenes'] = json.loads(p['scenes'])
-            except: pass
-        # Map DB 'resolution' col to 'next_hook' for logical use
-        if 'resolution' in p:
-             p['next_hook'] = p['resolution']
-
-    full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
-    
-    # 修正: TPM15k対策。並列数を1に制限して直列化し、リクエスト集中を防ぐ
-    semaphore = asyncio.Semaphore(1) 
-
-    tasks = []
-    print(f"Starting Serial Writing (TPM Safe Mode) (Ep {start_ep} - {end_ep})...")
-
-    target_plots = [p for p in plots if start_ep <= p['ep_num'] <= end_ep]
-
-    for p in target_plots:
-        ep_num = p['ep_num']
-        
-        tasks.append(engine.write_episodes(
-            full_data, 
-            ep_num, 
-            ep_num, 
-            style_dna_str=saved_style, 
-            target_model=MODEL_LITE, 
-            semaphore=semaphore
-        ))
-
-    results = await asyncio.gather(*tasks)
-
-    total_count = 0
-    for res_data in results:
-        if res_data and 'chapters' in res_data:
-            # count is merely the length of generated chapters in this batch
-            total_count += len(res_data['chapters'])
-            
-    print(f"Batch Done (Ep {start_ep}-{end_ep}). Total Episodes Written: {total_count}")
-    return total_count, full_data, saved_style
-
-async def task_rewrite(engine, full_data, rewrite_targets, evals, saved_style):
-    if not rewrite_targets: return 0
-    print(f"Rewriting {len(rewrite_targets)} Episodes (Consistency & Quality Check)...")
-    c = await engine.rewrite_target_episodes(full_data, rewrite_targets, evals, style_dna_str=saved_style)
-    return c
-
-# ==========================================
-# 3. Main Logic
-# ==========================================
-
-async def create_zip_package(book_id, title):
-    print("Packing ZIP...")
-    buffer = io.BytesIO()
-
-    current_book = await db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
-    db_chars = await db.fetch_all("SELECT * FROM characters WHERE book_id=?", (book_id,))
-    db_plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
-    chapters = await db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
-    
-    # マーケティングデータの取得
-    marketing_data = {}
-    if current_book.get('marketing_data'):
-        try:
-               marketing_data = json.loads(current_book['marketing_data'])
-        except: pass
-
-    def clean_filename_title(t):
-        return re.sub(r'[\\/:*?"<>|]', '', re.sub(r'^第\d+話[\s　]*', '', t)).strip()
-
-    keyword_dict = {}
-    mc_char = next((c for c in db_chars if c['role'] == '主人公'), None)
-    if mc_char:
-        try:
-            reg_data = json.loads(mc_char['registry_data'])
-            if reg_data:
-                k_str = reg_data.get('keyword_dictionary', '{}')
-                k_dict = json.loads(k_str) if isinstance(k_str, str) else k_str
-        except: pass
-
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
-        reg_info = f"【タイトル】\n{title}\n\n【あらすじ】\n{current_book.get('synopsis', '')}\n"
-        z.writestr("00_作品登録用データ.txt", reg_info)
-
-        setting_txt = f"【世界観・特殊能力設定】\n{current_book.get('special_ability', 'なし')}\n\n"
-        setting_txt += "【キャラクター設定】\n"
-        for char in db_chars:
-            setting_txt += f"■ {char['name']} ({char['role']})\n"
-            if char.get('monologue_style'):
-                setting_txt += f"  - モノローグ癖: {char['monologue_style']}\n"
-            try:
-                setting_txt += f"  - Registry Data: {char['registry_data']}\n"
-            except:
-                setting_txt += "\n"
-            setting_txt += "\n"
-        z.writestr("00_キャラクター・世界観設定資料.txt", setting_txt)
-
-        plot_txt = f"【タイトル】{title}\n【全話プロット構成案】\n\n"
-        for p in db_plots:
-            plot_txt += f"--------------------------------------------------\n"
-            plot_txt += f"第{p['ep_num']}話：{p['title']}\n"
-            plot_txt += f"--------------------------------------------------\n"
-            plot_txt += f"・メインイベント: {p.get('main_event', '')}\n"
-            plot_txt += f"・詳細設計図: {p.get('detailed_blueprint', '')}\n"
-            plot_txt += f"・導入 (Setup): {p.get('setup', '')}\n"
-            plot_txt += f"・展開 (Conflict): {p.get('conflict', '')}\n"
-            plot_txt += f"・見せ場 (Climax): {p.get('climax', '')}\n"
-            plot_txt += f"・引き (Next Hook): {p.get('resolution', '')}\n" # Note: mapped to Resolution col
-            plot_txt += f"・テンション: {p.get('tension', '-')}/100\n\n"
-        z.writestr("00_全話プロット構成案.txt", plot_txt)
-
-        for ch in chapters:
-            clean_title = clean_filename_title(ch['title'])
-            fname = f"chapters/{ch['ep_num']:02d}_{clean_title}.txt"
-            # Formatter already applied on save, just raw dump
-            z.writestr(fname, ch['content'])
-        
-        if marketing_data:
-            meta = f"【タイトル】\n{title}\n\n"
-            meta += f"【キャッチコピー】\n" + "\n".join(marketing_data.get('catchcopies', [])) + "\n\n"
-            meta += f"【検索タグ】\n{' '.join(marketing_data.get('tags', []))}\n\n"
-            z.writestr("marketing_assets.txt", meta)
-            
-            try:
-                z.writestr("marketing_raw.json", json.dumps(marketing_data, ensure_ascii=False))
-            except: pass
-
-    buffer.seek(0)
-    return buffer.getvalue()
-
-def send_email(zip_data, title):
-    if not GMAIL_USER or not GMAIL_PASS:
-        print("Skipping Email: Credentials not found.")
-        return
-
-    print(f"Sending Email to {TARGET_EMAIL}...")
-    msg = MIMEMultipart()
-    msg['Subject'] = f"【AI Novel Factory】{title} (Completed)"
-    msg['From'] = GMAIL_USER
-    msg['To'] = TARGET_EMAIL
-
-    part = MIMEBase('application', 'zip')
-    part.set_payload(zip_data)
-    encoders.encode_base64(part)
-    clean_title = re.sub(r'[\\/:*?"<>|]', '', title)
-    part.add_header('Content-Disposition', f'attachment; filename="{clean_title}.zip"')
-    msg.attach(part)
-
-    try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(GMAIL_USER, GMAIL_PASS)
-            server.send_message(msg)
-        print("Email Sent Successfully!")
+        data = await self.engine._generate_json(MODEL_FAST, prompt)
+        print(f"★ Trend Detected: {data.get('genre')} - {data.get('hook_text')}")
+        return data
     except Exception as e:
-        print(f"Email Failed: {e}")
+        print(f"Trend Analysis Failed: {e}. Using fallback.")
+        return {
+            "genre": "現代ダンジョン", "keywords": "配信, 無双", 
+            "personality": "冷静", "tone": "俺", "style": "style_web_standard", "hook_text": "配信切り忘れで世界最強"
+        }
+class QualityAssuranceEngine: """Gemma 3 (27B) を使用して品質チェック""" def init(self, engine): self.engine = engine
 
-async def main():
-    if not API_KEY:
-        print("Error: GEMINI_API_KEY is missing.")
-        return
+async def evaluate(self, content: str, settings_json: str) -> QualityReport:
+    prompt = self.engine.prompt_manager.get(
+        "qa_evaluation_prompt",
+        settings=settings_json,
+        content=content[:4000]
+    )
+    try:
+        # 高性能な 27B モデルで検閲
+        data = await self.engine._generate_json(MODEL_WRITER, prompt)
+        return QualityReport.model_validate(data)
+    except Exception as e:
+        print(f"QA Failed: {e}")
+        return QualityReport(
+            is_consistent=True, fatal_errors=[], consistency_score=50,
+            cliffhanger_score=50, kakuyomu_appeal_score=50, stress_level=0, catharsis_level=0,
+            improvement_advice="QA Error", suggested_diff=""
+        )
+class UltraEngine: def init(self, api_key): self.client = genai.Client(api_key=api_key) self.prompt_manager = PromptManager() self.trend_analyst = TrendAnalyst(self) self.qa_engine = QualityAssuranceEngine(self)
 
-    await db.start() 
-    engine = UltraEngine(API_KEY)
-
-    print("Starting Factory Pipeline (Infinite Loop Mode)...")
-
-    while True:
-        print(f"\n=== Starting New Novel Generation Sequence at {datetime.datetime.now()} ===")
+async def _generate_with_retry(self, model, contents, config=None):
+    retries = 0
+    while retries < 5:
         try:
-            # Step 0: Trend Analysis (Replaced Load Seed)
-            seed = await engine.trend_analyst.get_dynamic_seed()
-            
-            # Step 1: 1-25話プロット + マーケティングアセット生成
-            print("Step 1a: Generating Plot Phase 1 (Ep 1-25) & Marketing Assets...")
-            data1 = await engine.generate_universe_blueprint_phase1(
-                seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
+            return await self.client.aio.models.generate_content(
+                model=model, contents=contents, config=config
             )
-            
-            if not data1: 
-                print("Plot Gen Phase 1 failed. Skipping to next cycle.")
-                await asyncio.sleep(10)
-                continue
-
-            bid, plots_p1 = await engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
-            print(f"Phase 1 Saved. ID: {bid}")
-            
-            print("Step 2: Execution - Phase 1 Writing (Ep 1-25)...")
-            
-            # Phase 1 執筆 (1-25話)
-            count_p1, full_data_p1, saved_style = await task_write_batch(engine, bid, start_ep=1, end_ep=25)
-            
-            # Phase 2 プロット生成 (再生性)
-            print("Step 3: Regenerating Future Plots (Ep 26-50)...")
-            data2 = await engine.regenerate_future_plots(bid, current_ep=25)
-            if data2 and 'plots' in data2:
-                saved_plots_p2 = await engine.save_additional_plots_to_db(bid, data2)
-                print(f"Phase 2 Plots Saved ({len(saved_plots_p2)} eps).")
-            else:
-                print("Phase 2 Generation Failed. Proceeding with existing plots if any.")
-            
-            print("Step 4: Execution - Phase 2 Writing (Ep 26-50)...")
-
-            # Phase 2 執筆 (26-50話)
-            count_p2, full_data_final, _ = await task_write_batch(engine, bid, start_ep=26, end_ep=50)
-            
-            # Finalize
-            print("Running Final Packaging...")
-            
-            book_info = await db.fetch_one("SELECT title FROM books WHERE id=?", (bid,))
-            title = book_info['title']
-            
-            zip_bytes = await create_zip_package(bid, title)
-            send_email(zip_bytes, title)
-            
-            print(f"Mission Complete: {title}. Moving to next creation in 60 seconds...")
-            await asyncio.sleep(60)
-            
         except Exception as e:
-            print(f"Pipeline Critical Error: {e}")
-            import traceback
-            traceback.print_exc()
-            print("Recovering... sleeping for 300 seconds before retry.")
-            await asyncio.sleep(300)
+            print(f"⚠️ API Error ({model}): {e}. Retrying...")
+            await asyncio.sleep(2 + (2 ** retries))
+            retries += 1
+    raise Exception(f"Failed to generate with {model}")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+async def _generate_json(self, model, prompt) -> dict:
+    """Gemma 3 向けの強力なJSON抽出"""
+    config = types.GenerateContentConfig(response_mime_type="application/json")
+    res = await self._generate_with_retry(model, prompt, config)
+    text = res.text.strip()
+    
+    # Markdown削除
+    text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'```$', '', text, flags=re.MULTILINE)
+    
+    # RegexでJSONオブジェクトを抽出
+    match = re.search(r'(\{.*\})', text, re.DOTALL)
+    if match: text = match.group(1)
+    
+    # 制御文字削除
+    text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
+
+    try:
+        return json.loads(text)
+    except:
+        # 失敗時はテキスト全体を返す簡易救済
+        if "content" not in text: # プロット生成などの場合
+            raise ValueError(f"JSON Parse Failed: {text[:100]}...")
+        return {"content": text, "summary": "Parse Error", "next_world_state": {}}
+
+# ----------------------------------------------------------------
+# 1. Plot Generation (GEMINI ONLY - 2 Calls Total)
+# ----------------------------------------------------------------
+async def generate_phase1_plot(self, seed: dict):
+    """【API Call 1】Geminiによるプロット生成 (前半)"""
+    print(f"Step 1: Plotting Phase 1 (Ep1-25) using {MODEL_ARCHITECT}...")
+    
+    schema = json.dumps(NovelStructure.model_json_schema(), ensure_ascii=False)
+    style_def = STYLE_DEFINITIONS.get(seed['style'], STYLE_DEFINITIONS['style_web_standard'])
+    
+    prompt = self.prompt_manager.get(
+        "plot_phase1",
+        genre=seed['genre'], keywords=seed['keywords'],
+        mc_personality=seed['personality'], mc_tone=seed['tone'],
+        style_name=style_def['name'], schema=schema
+    )
+    
+    data = await self._generate_json(MODEL_ARCHITECT, prompt)
+    return NovelStructure.model_validate(data)
+
+async def generate_phase2_plot(self, book_id: int):
+    """【API Call 2】Geminiによるプロット生成 (後半)"""
+    print(f"Step 3: Plotting Phase 2 (Ep26-50) using {MODEL_ARCHITECT}...")
+    
+    # コンテキスト収集
+    summ_rows = await db.fetch_all("SELECT summary FROM chapters WHERE book_id=? ORDER BY ep_num DESC LIMIT 10", (book_id,))
+    history_summ = "\n".join([f"- {r['summary']}" for r in summ_rows[::-1]])
+    
+    schema = json.dumps(Phase2Structure.model_json_schema(), ensure_ascii=False)
+    prompt = self.prompt_manager.get(
+        "plot_phase2",
+        history_summ=history_summ, schema=schema
+    )
+    
+    data = await self._generate_json(MODEL_ARCHITECT, prompt)
+    return Phase2Structure.model_validate(data)
+
+# ----------------------------------------------------------------
+# 2. Episode Writing & QA Loop (GEMMA 3 ONLY) - PARALLEL MODE
+# ----------------------------------------------------------------
+async def write_episodes(self, book_id, plots, mc_profile, style_dna):
+    """Gemma 3による執筆・検閲・リライトループ（並列処理版）"""
+    
+    # ★同時執筆数（推奨: 3〜5）
+    semaphore = asyncio.Semaphore(5) 
+    
+    style_def = STYLE_DEFINITIONS.get(style_dna, STYLE_DEFINITIONS['style_web_standard'])
+    
+    # Registry構築
+    registry = CharacterRegistry(**mc_profile)
+    
+    system_rules = self.prompt_manager.get(
+        "system_rules",
+        mc_name=registry.name, mc_tone=registry.tone,
+        mc_personality=registry.personality, pronouns=registry.pronouns,
+        keywords=registry.keyword_dictionary, monologue_style=registry.monologue_style,
+        relations=registry.relations,
+        style_name=style_def['name'], style_instruction=style_def['instruction']
+    )
+    entity_context = registry.get_context_prompt()
+
+    async def _worker(plot):
+        async with semaphore:
+            ep_num = plot['ep_num']
+            print(f"  > Gemma Writing Ep {ep_num}: {plot['title']} (Start)...")
+            
+            # コンテキスト取得
+            # 並列時は最新の更新が間に合わない場合もあるが、DBからその時点での最新設定を取得
+            bible = await db.fetch_one("SELECT settings FROM bible WHERE book_id=?", (book_id,))
+            bible_ctx = bible['settings'] if bible else "{}"
+            
+            rewrite_instruction = "なし"
+            max_retries = 2
+            retry_count = 0
+            
+            while retry_count <= max_retries:
+                # プロンプト構築
+                prompt = self.prompt_manager.get(
+                    "episode_writer",
+                    system_rules=system_rules,
+                    entity_context=entity_context,
+                    writing_rules=self.prompt_manager.get("writing_rules"),
+                    cliffhanger_protocol=self.prompt_manager.get("cliffhanger_protocol"),
+                    pacing_instruction="Tension: High" if plot.get('tension', 50) > 70 else "Normal Pacing",
+                    ep_num=ep_num,
+                    episode_plot_text=json.dumps(plot, ensure_ascii=False),
+                    bible_context=bible_ctx,
+                    rewrite_instruction=rewrite_instruction
+                )
+
+                # 執筆実行 (Gemma 3 27B)
+                try:
+                    ep_data = await self._generate_json(MODEL_WRITER, prompt)
+                    content = ep_data['content']
+                    
+                    # QA Check (Gemma 3 27B)
+                    qa = await self.qa_engine.evaluate(content, bible_ctx)
+                    
+                    # 評価判定 (クリフハンガー or 訴求力が低い場合)
+                    if (qa.cliffhanger_score < 70 or qa.kakuyomu_appeal_score < 70) and retry_count < max_retries:
+                        print(f"    ⚠️ Low Quality Ep{ep_num} (Score: {qa.cliffhanger_score}). Rewriting...")
+                        rewrite_instruction = self.prompt_manager.get(
+                            "rewrite_critique",
+                            improvement_advice=qa.improvement_advice,
+                            suggested_diff=qa.suggested_diff
+                        )
+                        retry_count += 1
+                        continue # ループ先頭へ
+                    
+                    # 成功: 保存
+                    await db.execute(
+                        "INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, world_state, created_at) VALUES (?,?,?,?,?,?,?)",
+                        (book_id, ep_num, plot['title'], content, ep_data.get('summary', ''), json.dumps(ep_data.get('next_world_state', {})), datetime.datetime.now().isoformat())
+                    )
+                    # Bible更新 (並列時は競合の可能性がありますが、最新の上書きを許容します)
+                    if ep_data.get('next_world_state'):
+                         await db.execute("UPDATE bible SET settings=? WHERE book_id=?", (json.dumps(ep_data['next_world_state'].get('settings', bible_ctx)), book_id))
+                    
+                    print(f"  ✅ Finished Ep {ep_num}")
+                    break
+
+                except Exception as e:
+                    print(f"    ❌ Error Ep{ep_num}: {e}")
+                    retry_count += 1
+
+    # タスクを一括生成して並列実行
+    tasks = [_worker(plot) for plot in plots]
+    await asyncio.gather(*tasks)
+
+# ----------------------------------------------------------------
+# 3. Helpers
+# ----------------------------------------------------------------
+async def save_structure(self, structure: NovelStructure, genre: str, style: str):
+    # Book保存
+    bid = await db.execute(
+        "INSERT INTO books (title, genre, style_dna, synopsis, marketing_data, created_at) VALUES (?,?,?,?,?,?)",
+        (structure.title, genre, style, structure.synopsis, json.dumps(structure.marketing_assets.model_dump(), ensure_ascii=False), datetime.datetime.now().isoformat())
+    )
+    # キャラクター保存
+    mc = structure.mc_profile
+    await db.execute(
+        "INSERT INTO characters (book_id, name, role, registry_data, monologue_style) VALUES (?,?,?,?,?)",
+        (bid, mc.name, "主人公", json.dumps(mc.model_dump(), ensure_ascii=False), mc.monologue_style)
+    )
+    # 初期Bible保存
+    await db.execute("INSERT INTO bible (book_id, settings, version) VALUES (?, ?, 0)", (bid, "{}"))
+    # Plot保存
+    await self.save_plots(bid, structure.plots)
+    return bid
+
+async def save_plots(self, book_id, plots: List[PlotEpisode]):
+    for p in plots:
+        await db.execute(
+            "INSERT OR REPLACE INTO plot (book_id, ep_num, title, setup, conflict, climax, resolution, scenes, tension) VALUES (?,?,?,?,?,?,?,?,?)",
+            (book_id, p.ep_num, p.title, p.setup, p.conflict, p.climax, p.next_hook, json.dumps([s.model_dump() for s in p.scenes], ensure_ascii=False), p.tension)
+        )
+==========================================
+6. Packaging & Export
+==========================================
+async def create_zip_package(book_id, title): print("Packing ZIP...") buffer = io.BytesIO()
+
+# DBから全データ取得
+chapters = await db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
+book = await db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
+plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
+
+with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+    # 設定ファイル
+    info = f"タイトル: {title}\nあらすじ: {book['synopsis']}\n"
+    z.writestr("00_作品情報.txt", info)
+    
+    # プロット
+    plot_txt = "【全話プロット】\n\n"
+    for p in plots:
+        plot_txt += f"第{p['ep_num']}話: {p['title']}\nEvent: {p['main_event']}\n\n"
+    z.writestr("00_プロット.txt", plot_txt)
+
+    # 各話本文
+    for ch in chapters:
+        fname = f"chapters/{ch['ep_num']:02d}_{ch['title']}.txt"
+        # 不正文字除去
+        fname = re.sub(r'[\\/:*?"<>|]', '', fname)
+        z.writestr(fname, ch['content'])
+
+buffer.seek(0)
+return buffer.getvalue()
+def send_email(zip_data, title): if not GMAIL_USER or not GMAIL_PASS: print("Skipping Email: Credentials not found.") return
+
+print(f"Sending Email to {TARGET_EMAIL}...")
+msg = MIMEMultipart()
+msg['Subject'] = f"【AI Novel Factory】{title} (Completed)"
+msg['From'] = GMAIL_USER
+msg['To'] = TARGET_EMAIL
+
+part = MIMEBase('application', 'zip')
+part.set_payload(zip_data)
+encoders.encode_base64(part)
+clean_title = re.sub(r'[\\/:*?"<>|]', '', title)
+part.add_header('Content-Disposition', f'attachment; filename="{clean_title}.zip"')
+msg.attach(part)
+
+try:
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(GMAIL_USER, GMAIL_PASS)
+        server.send_message(msg)
+    print("Email Sent Successfully!")
+except Exception as e:
+    print(f"Email Failed: {e}")
+==========================================
+Main Pipeline
+==========================================
+async def main(): if not API_KEY: print("Error: GEMINI_API_KEY is missing.") return
+
+await db.start()
+engine = UltraEngine(API_KEY)
+
+print("=== AI Novel Factory (Gemini Architect + Gemma Writer) ===")
+
+# 0. Trend Analysis (Gemma 12B)
+seed = await engine.trend_analyst.get_dynamic_seed()
+
+# 1. Phase 1 Plot (Gemini 2.0 Flash: Call 1/2)
+struct_p1 = await engine.generate_phase1_plot(seed)
+book_id = await engine.save_structure(struct_p1, seed['genre'], seed['style'])
+print(f"Phase 1 Plots Saved. Book ID: {book_id}")
+
+# 2. Phase 1 Writing (Gemma 27B Loop / Parallel)
+mc_profile = struct_p1.mc_profile.model_dump()
+plots_p1 = [p.model_dump() for p in struct_p1.plots]
+await engine.write_episodes(book_id, plots_p1, mc_profile, seed['style'])
+
+# 3. Phase 2 Plot (Gemini 2.0 Flash: Call 2/2)
+# これ以降 Gemini は呼び出されない
+struct_p2 = await engine.generate_phase2_plot(book_id)
+await engine.save_plots(book_id, struct_p2.plots)
+print(f"Phase 2 Plots Saved.")
+
+# 4. Phase 2 Writing (Gemma 27B Loop / Parallel)
+plots_p2 = [p.model_dump() for p in struct_p2.plots]
+await engine.write_episodes(book_id, plots_p2, mc_profile, seed['style'])
+
+# 5. Export
+zip_bytes = await create_zip_package(book_id, struct_p1.title)
+send_email(zip_bytes, struct_p1.title)
+
+print("All processes completed.")
+if name == "main": asyncio.run(main())
