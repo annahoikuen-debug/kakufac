@@ -1659,8 +1659,9 @@ class UltraEngine:
                                 await self.repo.db.save_model(
                                     """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
                                     VALUES (?,?,?,?,?,?,?,?)""",
-                                    (self.repo.db.db_path, ep_num, plot['title'], "（生成エラー：リトライ上限到達）", "エラー", '', json.dumps({}, ensure_ascii=False), datetime.datetime.now().isoformat())
+                                    (book_data['book_id'], ep_num, plot['title'], "（生成エラー：リトライ上限到達）", "エラー", '', json.dumps({}, ensure_ascii=False), datetime.datetime.now().isoformat())
                                 )
+                                # Note: self.repo.db.book_id was wrong. Changed to book_data['book_id'].
                                 
                                 full_chapters.append({
                                     "ep_num": ep_num,
@@ -1732,7 +1733,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     # 1. アンカー状態の先行生成 (DBになければ)
     for anchor in relevant_anchors:
         # Check existence logic:
-        # idカラムがないため、book_idを選択するか、1を選択する (Fixed previous error)
+        # idカラムがないため、book_idを選択する (Fixed previous error)
         chk = await db.fetch_one("SELECT book_id FROM chapters WHERE book_id=? AND ep_num=?", (bid, anchor))
         if not chk:
              await engine.generate_anchor_state(full_data, anchor)
@@ -1754,6 +1755,8 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     
     # 並列数を増やす (Parallel Execution)
     semaphore = asyncio.Semaphore(5) # Increase concurrency for parallel blocks
+
+    tasks = [] # Added initialization
 
     for s, e in ranges:
         tasks.append(engine.write_episodes(
