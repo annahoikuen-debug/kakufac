@@ -1486,7 +1486,7 @@ class UltraEngine:
                 
                 # リトライループの実装 (最大3回)
                 retry_count = 0
-                max_retries = 3
+                max_retries = 1000
                 
                 while retry_count < max_retries:
                     try:
@@ -1838,4 +1838,5 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
+
     asyncio.run(main())
