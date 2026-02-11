@@ -1760,7 +1760,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     print(f"Parallel Schedule: {ranges}")
     
     # 並列数を増やす (Parallel Execution)
-    semaphore = asyncio.Semaphore(5) # Increase concurrency for parallel blocks
+    semaphore = asyncio.Semaphore(3) # Increase concurrency for parallel blocks
 
     tasks = [] # Added initialization
 
@@ -1970,4 +1970,5 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
+
     asyncio.run(main())
