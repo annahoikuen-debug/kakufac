@@ -248,9 +248,10 @@ class PromptManager:
    {mc_dialogue_samples}
    ※このサンプルのニュアンスを全ての会話で再現せよ。
 
-【世界観の反映】
-1. [KEYWORD DICTIONARY] 以下の用語・ルビ・特殊呼称を必ず使用し、世界観に厚みを持たせよ: {keywords}
-2. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
+【知識の遮断 (Knowledge Cutoff)】
+あなたは物語の書き手だが、**主人公の知識レベル**を超越してはならない。
+- Bibleに書かれている「世界の真実」や「ラスボスの正体」を、物語上で開示されるまで地の文やセリフに出すことを固く禁ずる。
+- 全ては「主人公の視点」から見た限定的な情報として描写せよ。
 
 【日本語作法・厳格なルール】
 1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。
@@ -265,25 +266,23 @@ class PromptManager:
 【執筆プロトコル: 一括生成モード】
 以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
 
-1. **ブリッジ・コンテキスト（前話との接続）**:
-   - **直前のシーンから1秒も時間を飛ばさずに書き始めよ。**
-   - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。唐突な場面転換は禁止する。
+1. **情報開示制限（Spoiler Guard）**:
+   - **「Detailed Blueprint」に書かれていない新キャラ、新設定、新展開を勝手に創作することを固く禁ずる。**
+   - AIの「話を盛りたい」という欲求を抑え、設計図にあるイベントだけを忠実に描写せよ。
+   - ラスボスや世界の謎など、まだ早い段階のネタバレを絶対に記述するな。
 
-2. **出力文字数**:
+2. **ブリッジ・コンテキスト（前話との接続）**:
+   - **直前のシーンから1秒も時間を飛ばさずに書き始めよ。**
+   - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。
+
+3. **出力文字数**:
    - 必ず **1,500文字〜2,000文字** の範囲に収めること。
 
-3. **構成（起承転結）**:
-   - 1度の出力の中に「導入・展開・クライマックス・結末（引き）」の抑揚をつけよ。
+4. **構成（起承転結）**:
    - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。
-
-4. **密度**:
-   - 「〜ということがあった」のようなあらすじ要約を厳禁とする。
-   - 情景描写、五感、セリフ、内面描写を交え、読者が没入できる小説形式で記述せよ。
 
 5. **【最重要】カクヨム・メソッド（リアクション）**:
     - 主人公の行動に対する「周囲の反応」を必ず描写せよ。
-    - 敵：「バカな…ありえない！」「ひ、ひぃぃ！」という情けない悲鳴。
-    - 味方/観衆：「あいつ、また何かやったのか？」「これが…Sランクの力…！」という驚愕と解説。
 """,
         "cliffhanger_protocol": """
 【究極の「引き」生成ロジック: Cliffhanger Protocol】
@@ -327,6 +326,8 @@ JSON形式で以下のキーを含めて出力せよ:
 
 以下の項目を厳しく評価し、JSONで出力せよ:
 1. **整合性(Consistency)**: 設定矛盾はないか？ (0-100)
+   - 特に「まだ開示されていない情報（ネタバレ）」が漏れていないか厳しくチェックせよ。
+   - プロットにない新キャラや設定が勝手に追加されていたら0点にせよ。
 2. **クリフハンガー(Cliffhanger)**: 続きを読ませる引きの強さ (0-100)。80点未満はリライト対象。
 3. **カクヨム訴求力(Appeal)**: (0-100)
     - 減点対象: 「倒した」「勝った」という事後報告のみの描写 (-20点)
@@ -403,13 +404,19 @@ Output strictly in JSON format following this schema:
 2. `summary`: 次話へ繋ぐための要約
 3. `next_world_state`: この話で確定した設定・変化した状態・解決した謎・新たな伏線を反映した最新のBible状態
 
-【Pending Foreshadowing (Priority)】
+【ネタバレ注意：まだ書いてはいけない裏設定リスト】
+以下の伏線は将来のためのものであり、本エピソードで触れることは固く禁ずる。プロットに指示がない限り、存在すら匂わせるな。
 {pending_foreshadowing}
+
 {must_resolve_instruction}
 
 【Bridge Context (前話からの接続・必須)】
 以下の文脈から1秒も時間を飛ばさず、直結するように書き始めよ。
 {prev_context_text}
+
+【プロット遵守の絶対原則 (Strict Blueprint Adherence)】
+以下の「Detailed Blueprint」に含まれないイベント、会話、キャラの登場はすべてエラーである。
+AIの創作で話を盛るな。設計図を忠実に文章化することだけに集中せよ。
 
 【今回の設計図 (Detailed Blueprint)】
 {episode_plot_text}
@@ -784,7 +791,7 @@ class DynamicBibleManager:
 [SETTINGS]: {state.settings}
 [REVEALED]: {json.dumps(state.revealed, ensure_ascii=False)}
 [SOLVED MYSTERIES]: {json.dumps(state.revealed_mysteries, ensure_ascii=False)}
-[PENDING FORESHADOWING]: {json.dumps(state.pending_foreshadowing, ensure_ascii=False)}
+[PENDING FORESHADOWING (FOR FUTURE USE ONLY)]: {json.dumps(state.pending_foreshadowing, ensure_ascii=False)}
 [DEPENDENCY GRAPH (Resolution Plan)]: {state.dependency_graph}
 """
 
@@ -1456,7 +1463,7 @@ class UltraEngine:
     async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="style_web_standard"):
         """リライト処理 - Uses QA Engine within write loop via instruction"""
         rewritten_count = 0
-        semaphore = asyncio.Semaphore(2) 
+        semaphore = asyncio.Semaphore(1) 
         eval_map = {e['ep_num']: e for e in evaluations}
         tasks = []
         
@@ -1524,7 +1531,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
     
     # 修正: TPM15k対策。並列数を1に制限して直列化し、リクエスト集中を防ぐ
-    semaphore = asyncio.Semaphore(2) 
+    semaphore = asyncio.Semaphore(1) 
 
     tasks = []
     print(f"Starting Serial Writing (TPM Safe Mode) (Ep {start_ep} - {end_ep})...")
@@ -1738,5 +1745,4 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
-
     asyncio.run(main())
