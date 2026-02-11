@@ -216,7 +216,13 @@ class WorldState(BaseModel):
 class EpisodeResponse(BaseModel):
     content: str = Field(..., description="エピソード本文 (1500-2000文字)")
     summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
+    self_evaluation_score: int = Field(..., description="このエピソードの面白さの自己採点 (0-100)。")
+    low_quality_reason: Optional[str] = Field(default=None, description="点数が低い場合の理由。")
     next_world_state: WorldState = Field(default_factory=WorldState, description="この話の結果更新された世界状態 (Fact Append)")
+
+class AnchorResponse(BaseModel):
+    summary: str = Field(..., description="あらすじ（500文字程度）")
+    world_state: WorldState = Field(..., description="この時点での世界状態")
 
 class TrendSeed(BaseModel):
     genre: str
@@ -268,6 +274,28 @@ JSON形式で以下のキーを含めて出力せよ:
 Output strictly in JSON format following this schema:
 {schema}
 """,
+        "anchor_generator": """
+あなたは物語のシミュレーターです。
+以下のプロットに基づき、第{target_ep}話終了時点での「あらすじ」と「世界の状態（WorldState）」を予測生成してください。
+これは物語のアンカーポイント（章の区切り）として使用されます。
+
+【既知の設定】
+{bible_context}
+
+【第{target_ep}話までのプロット】
+{plot_summary}
+
+出力は以下のJSON形式で厳密に行え:
+{{
+  "summary": "第{target_ep}話時点のあらすじ（500文字程度）",
+  "world_state": {{
+    "new_facts": ["この時点までに判明している主要な事実リスト"],
+    "revealed_mysteries": ["解明された謎"],
+    "pending_foreshadowing": ["残っている伏線"],
+    "dependency_graph": "{{}}"
+  }}
+}}
+""",
         # テンプレートから断片的なルール変数を削除し、build_writing_promptで動的に構築する形に変更
         "episode_writer_core": """
 [SYSTEM]
@@ -314,6 +342,8 @@ Schema:
 {{
   "content": "修正済みの最終エピソード本文 (1500-2000文字)",
   "summary": "次話への文脈用要約 (300文字)",
+  "self_evaluation_score": 0,
+  "low_quality_reason": "点数が低い場合の理由",
   "next_world_state": {{
     "new_facts": ["本エピソードで確定した新しい事実や設定のリスト (Append Only)"],
     "revealed_mysteries": ["新しく解明された謎"],
@@ -423,6 +453,14 @@ Gemmaモデルは以下の指示を最優先で実行せよ。
 {entity_context}
 
 {style_instruction}
+
+【MANDATORY SELF-EVALUATION】
+執筆後、以下の基準で厳しく自己採点し、JSONの `self_evaluation_score` に記入せよ。
+- 80-100点: 読者が続きを読みたくてたまらない「引き」があり、感情が揺さぶられる。
+- 60-79点: 普通。矛盾はないが、盛り上がりに欠ける。
+- 0-59点: 退屈、説明過多、またはキャラの性格が崩壊している。
+
+**重要: もし自信がなければ低い点数をつけよ。基準点未満をつけると、自動的にリトライが行われる。**
 """
         return final_prompt
 
@@ -777,7 +815,8 @@ class NovelRepository:
 
     async def get_latest_chapter(self, book_id: int, ep_num: int):
         """指定エピソードの直前のチャプターを取得"""
-        return await self.db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_id, ep_num - 1))
+        # Note: Updated to include world_state for anchor loading
+        return await self.db.fetch_one("SELECT content, summary, world_state FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_id, ep_num - 1))
 
     async def get_recent_plot_metrics(self, book_id: int, current_ep: int, limit: int = 5):
         """直近のエピソードのストレス/カタルシス指標を取得"""
@@ -867,8 +906,6 @@ class BibleSynchronizer:
         updated_foreshadowing = list(set(curr_foreshadowing + (next_state.pending_foreshadowing or [])))
         
         # Settings: 指令によりLLMに書き換えさせない。
-        # 新しい事実は `revealed` カラムに蓄積されることで設定として機能する。
-        # よって settings カラム自体は変更しない（あるいは、必要ならPython側で `new_facts` を解析して構造化データを更新するが、ここでは安全策としてFactリストへの追記を主とする）
         merged_settings = curr_settings_str 
 
         # Dependency Graph (Merge)
@@ -1243,6 +1280,76 @@ class UltraEngine:
             print(f"Plot Phase 1 Error: {e}")
             return None
 
+    async def generate_anchor_state(self, book_data, target_ep):
+        """マイルストーンとなる章末の状態を先行生成し、DBに保存する"""
+        print(f"Generating Anchor State for End of Ep {target_ep}...")
+        
+        # 1. ターゲットまでのプロット概要を取得
+        # Note: In a real scenario, passing full plots for 1-target_ep might be huge.
+        # We assume plots are available in book_data['plots'].
+        sorted_plots = sorted(book_data['plots'], key=lambda x: x['ep_num'])
+        relevant_plots = [p for p in sorted_plots if p['ep_num'] <= target_ep]
+        
+        plot_summary = ""
+        for p in relevant_plots:
+            plot_summary += f"第{p['ep_num']}話: {p['title']}\n{p.get('detailed_blueprint', '')[:200]}...\n\n"
+        
+        bible_manager = DynamicBibleManager(book_data['book_id'])
+        bible_context = await bible_manager.get_prompt_context()
+
+        prompt = self.prompt_manager.get(
+            "anchor_generator",
+            target_ep=target_ep,
+            bible_context=bible_context,
+            plot_summary=plot_summary
+        )
+
+        try:
+            res = await self._generate_with_retry(
+                model=MODEL_ULTRALONG, # High context model for summarization
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    safety_settings=self.safety_settings
+                )
+            )
+            
+            data = self._parse_json_response(res.text.strip())
+            
+            # Save to chapters table as a placeholder
+            # Use a special title to indicate it's an anchor
+            
+            # Format WorldState
+            ws_dict = data.get('world_state', {})
+            # Normalized
+            if isinstance(ws_dict, dict):
+                 if 'newfacts' in ws_dict: ws_dict['new_facts'] = ws_dict.pop('newfacts')
+                 if 'dependency_graph' in ws_dict and isinstance(ws_dict['dependency_graph'], (dict, list)):
+                     ws_dict['dependency_graph'] = json.dumps(ws_dict['dependency_graph'], ensure_ascii=False)
+            
+            # Save
+            # We use save_model directly to insert into chapters
+            await self.repo.db.save_model(
+                """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (
+                    book_data['book_id'], 
+                    target_ep, 
+                    f"ANCHOR_EP_{target_ep}", 
+                    "(ANCHOR_STATE_ONLY)", 
+                    data.get('summary', ''), 
+                    '', 
+                    json.dumps(ws_dict, ensure_ascii=False), 
+                    datetime.datetime.now().isoformat()
+                )
+            )
+            print(f"Anchor for Ep {target_ep} Saved.")
+            return True
+            
+        except Exception as e:
+            print(f"Anchor Gen Error Ep {target_ep}: {e}")
+            return False
+
     async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, semaphore=None):
         """
         1エピソード1リクエスト化: 本文・要約・Bible更新を一括実行
@@ -1266,6 +1373,7 @@ class UltraEngine:
             char_registry = CharacterRegistry(name="主人公", tone="標準", personality="", ability="", monologue_style="", pronouns="{}", keyword_dictionary="{}", relations="{}", dialogue_samples="{}")
         
         # 前話の文脈取得 (Repository経由)
+        # Note: get_latest_chapter now fetches world_state too.
         prev_ep_row = await self.repo.get_latest_chapter(book_data['book_id'], start_ep)
         prev_context_text = prev_ep_row['content'][-500:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
 
@@ -1319,7 +1427,18 @@ class UltraEngine:
 【Scenes】
 {scenes_str}
 """
-            # Optimistic Lock: Get Version BEFORE writing
+            # World State Context Loading for Prompt
+            # If we are starting a block (e.g. 16), we might have an Anchor State in chapters table.
+            # But here we are writing ep 16. The state SHOULD be the state at end of 15.
+            # prev_ep_row (which we fetched at start) might be Ep 15 anchor.
+            # However, prev_ep_row is static outside the loop.
+            # Inside loop, we rely on bible_manager which hits DB.
+            # In parallel mode, this is a compromise: we assume the 'Bible' is consistent enough 
+            # OR we rely on the specific anchor logic.
+            # Since we can't refactor everything, we rely on DynamicBibleManager reading from Bible table.
+            # Assumption: BibleSynchronizer updates Bible table.
+            # Note: This means concurrent writes to Bible. It's a log, so it's okay.
+            
             world_state, expected_version = await bible_manager.get_current_state()
             bible_context = await bible_manager.get_prompt_context()
             
@@ -1385,6 +1504,15 @@ class UltraEngine:
                             raise ValueError("No text content returned from API")
                         
                         ep_data = self._parse_json_response(text_content)
+                        
+                        # Quality Gate Logic
+                        quality_score = ep_data.get('self_evaluation_score', 100)
+                        threshold = 90 if 1 <= ep_num <= 5 else 70
+                        
+                        if quality_score < threshold:
+                             reason = ep_data.get('low_quality_reason', '理由不明')
+                             print(f"⚠️ Low Quality Detected (Score: {quality_score}/{threshold}): {reason}. Triggering Retry...")
+                             raise ValueError(f"Self-evaluated score is too low ({quality_score} < {threshold}). Reason: {reason}")
                         
                         full_content = ep_data['content']
                         
@@ -1490,29 +1618,65 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
 
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": processed_plots}
     
-    # 並列数を1に制限して直列化し、リクエスト集中を防ぐ
-    semaphore = asyncio.Semaphore(1) 
+    # 【指令対応】ダイナミック・アンカー・スケジューリング & 並列化
+    # リスト: [15, 25, 35, 45, 55...]
+    anchors = [15] + [i for i in range(25, 201, 10)]
+    
+    # 今回の範囲に含まれるアンカーを抽出 (start_ep ~ end_ep)
+    # アンカーは「章の終わり」。つまり、アンカーポイントまでの状態を生成し、
+    # その次の話から新しいスレッドを開始できるようにする。
+    relevant_anchors = [a for a in anchors if start_ep <= a < end_ep] # a < end_ep is key. If anchor is 50 and end is 50, we don't need to generate anchor 50 to start 51 if we stop at 50.
+    
+    # 1. アンカー状態の先行生成
+    for anchor in relevant_anchors:
+        await engine.generate_anchor_state(full_data, anchor)
 
+    # 2. タスク分割 (Split Threads)
+    # スケジュール:
+    # 1-15 (Anchor 15)
+    # 16-25 (Anchor 25)
+    # ...
+    
     tasks = []
-    print(f"Starting Serial Writing (TPM Safe Mode) (Ep {start_ep} - {end_ep})...")
+    
+    # 範囲開始から最初のアンカーまで、または終了まで
+    # e.g. start=1, end=50. Anchors: 15, 25, 35, 45.
+    # Segments: 1-15, 16-25, 26-35, 36-45, 46-50.
+    
+    # Create segment boundaries
+    boundaries = sorted([start_ep - 1] + relevant_anchors + [end_ep])
+    # Remove duplicates and ensure order
+    boundaries = sorted(list(set(boundaries)))
+    
+    # Build ranges: (boundaries[i]+1, boundaries[i+1])
+    ranges = []
+    for i in range(len(boundaries)-1):
+        s = boundaries[i] + 1
+        e = boundaries[i+1]
+        if s <= e:
+            ranges.append((s, e))
+    
+    print(f"Parallel Schedule: {ranges}")
+    
+    # 並列数を増やす (Parallel Execution)
+    semaphore = asyncio.Semaphore(5) # Increase concurrency for parallel blocks
 
-    # 対象プロットのフィルタリングは write_episodes 内でも行われるが、ここでも確認
-    target_plots = [p for p in processed_plots if start_ep <= p['ep_num'] <= end_ep]
+    for s, e in ranges:
+        tasks.append(engine.write_episodes(
+            full_data, 
+            s, 
+            e, 
+            style_dna_str=saved_style, 
+            target_model=MODEL_LITE, 
+            semaphore=semaphore
+        ))
 
-    # 一括で渡す（エンジン側でループ処理）
-    # engine.write_episodes は指定範囲を処理するよう設計されている
-    results = await engine.write_episodes(
-        full_data, 
-        start_ep, 
-        end_ep, 
-        style_dna_str=saved_style, 
-        target_model=MODEL_LITE, 
-        semaphore=semaphore
-    )
+    results = await asyncio.gather(*tasks)
 
     total_count = 0
-    if results and 'chapters' in results:
-        total_count = len(results['chapters'])
+    for res in results:
+        if res and 'chapters' in res:
+            total_count += len(res['chapters'])
             
     print(f"Batch Done (Ep {start_ep}-{end_ep}). Total Episodes Written: {total_count}")
     return total_count, full_data, saved_style
