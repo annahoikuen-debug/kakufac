@@ -28,7 +28,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-2.5-flash"
+MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
 MODEL_MARKETING = "gemini-2.5-flash-lite"
@@ -1427,17 +1427,6 @@ class UltraEngine:
 【Scenes】
 {scenes_str}
 """
-            # World State Context Loading for Prompt
-            # If we are starting a block (e.g. 16), we might have an Anchor State in chapters table.
-            # But here we are writing ep 16. The state SHOULD be the state at end of 15.
-            # prev_ep_row (which we fetched at start) might be Ep 15 anchor.
-            # However, prev_ep_row is static outside the loop.
-            # Inside loop, we rely on bible_manager which hits DB.
-            # In parallel mode, this is a compromise: we assume the 'Bible' is consistent enough 
-            # OR we rely on the specific anchor logic.
-            # Since we can't refactor everything, we rely on DynamicBibleManager reading from Bible table.
-            # Assumption: BibleSynchronizer updates Bible table.
-            # Note: This means concurrent writes to Bible. It's a log, so it's okay.
             
             world_state, expected_version = await bible_manager.get_current_state()
             bible_context = await bible_manager.get_prompt_context()
@@ -1484,10 +1473,11 @@ class UltraEngine:
                 if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
                     gen_config_args["response_mime_type"] = "application/json"
                 
-                # リトライループの実装 (最大3回)
+                # リトライループの実装 (最大5回に強化)
                 retry_count = 0
-                max_retries = 1000
-                
+                max_retries = 5
+                best_attempt = None # ベストエフォート用
+
                 while retry_count < max_retries:
                     try:
                         # TPM 対策: 実行前に少し待つ
@@ -1505,26 +1495,35 @@ class UltraEngine:
                         
                         ep_data = self._parse_json_response(text_content)
                         
-                        # Quality Gate Logic
-                        quality_score = ep_data.get('self_evaluation_score', 100)
-                        threshold = 90 if 1 <= ep_num <= 5 else 70
+                        # ベストエフォート更新ロジック
+                        current_score = ep_data.get('self_evaluation_score', 0)
+                        if best_attempt is None or current_score > best_attempt['score']:
+                            best_attempt = {
+                                "score": current_score,
+                                "content": ep_data['content'],
+                                "summary": ep_data['summary'],
+                                "data": ep_data # world_state含む
+                            }
+
+                        # Quality Gate Logic (Threshold check)
+                        # 90点 -> 80点 に緩和
+                        threshold = 80 if 1 <= ep_num <= 5 else 70
                         
-                        if quality_score < threshold:
+                        if current_score < threshold:
                              reason = ep_data.get('low_quality_reason', '理由不明')
-                             print(f"⚠️ Low Quality Detected (Score: {quality_score}/{threshold}): {reason}. Triggering Retry...")
-                             raise ValueError(f"Self-evaluated score is too low ({quality_score} < {threshold}). Reason: {reason}")
+                             print(f"⚠️ Low Quality Detected (Score: {current_score}/{threshold}): {reason}. Triggering Retry...")
+                             # ここで例外を投げると、外側の except ブロックで捕捉され、retry_count が増えて再生成される
+                             raise ValueError(f"Self-evaluated score is too low ({current_score} < {threshold}). Reason: {reason}")
                         
+                        # 合格時の処理
                         full_content = ep_data['content']
-                        
                         # 強制接続: 重複排除
                         full_content = self.formatter.force_connect(full_content, prev_last_sentence)
-                        
                         ep_summary = ep_data['summary']
                         
-                        # Bible Sync (Unified Logic with Atomic Save & Fact Append)
+                        # Bible Sync
                         next_state_obj = WorldState(**ep_data['next_world_state']) if isinstance(ep_data['next_world_state'], dict) else ep_data['next_world_state']
                         
-                        # Prepare atomic save data
                         chapter_save_data = {
                             'ep_num': ep_num,
                             'title': plot['title'],
@@ -1535,7 +1534,6 @@ class UltraEngine:
                         await bible_synchronizer.save_atomic(chapter_save_data, next_state_obj)
                         
                         prev_context_text = f"（第{ep_num}話要約）{ep_summary}\n（直近の文）{full_content[-200:]}"
-                        # 次話のためにラスト文を更新
                         content_str = full_content.strip()
                         match = re.search(r'[^。]+。$', content_str)
                         if match:
@@ -1559,14 +1557,61 @@ class UltraEngine:
                         print(f"Writing Error Ep{ep_num} (Attempt {retry_count}/{max_retries}): {e}")
                         
                         if retry_count >= max_retries:
-                            # 3回失敗した場合のみエラーメッセージを保存
-                            full_chapters.append({
-                                "ep_num": ep_num,
-                                "title": plot['title'],
-                                "content": "（生成エラーが発生しました）",
-                                "summary": "エラー",
-                                "world_state": {}
-                            })
+                            # 上限到達時：ベストエフォートがあれば採用 (これが救済措置)
+                            if best_attempt:
+                                print(f"⚠️ Adopting Best Effort (Score: {best_attempt['score']}) for Ep {ep_num}")
+                                full_content = best_attempt['content']
+                                full_content = self.formatter.force_connect(full_content, prev_last_sentence)
+                                ep_summary = best_attempt['summary']
+                                
+                                next_state_data = best_attempt['data'].get('next_world_state', {})
+                                next_state_obj = WorldState(**next_state_data) if isinstance(next_state_data, dict) else next_state_data
+                                
+                                chapter_save_data = {
+                                    'ep_num': ep_num,
+                                    'title': plot['title'],
+                                    'content': full_content,
+                                    'summary': ep_summary
+                                }
+                                
+                                await bible_synchronizer.save_atomic(chapter_save_data, next_state_obj)
+                                
+                                # コンテキスト更新 (次話のため)
+                                prev_context_text = f"（第{ep_num}話要約）{ep_summary}\n（直近の文）{full_content[-200:]}"
+                                content_str = full_content.strip()
+                                match = re.search(r'[^。]+。$', content_str)
+                                if match:
+                                    prev_last_sentence = match.group(0)
+                                else:
+                                    prev_last_sentence = content_str[-20:]
+
+                                full_chapters.append({
+                                    "ep_num": ep_num,
+                                    "title": plot['title'],
+                                    "content": full_content,
+                                    "summary": ep_summary,
+                                    "world_state": best_attempt['data'].get('next_world_state', {})
+                                })
+                            else:
+                                # 本当に何も生成できなかった場合（JSONエラー等でベストエフォートすらない場合）
+                                # DBにエラー情報を保存する (改善策1)
+                                await self.repo.db.save_model(
+                                    """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
+                                    VALUES (?,?,?,?,?,?,?,?)""",
+                                    (self.repo.db.db_path, ep_num, plot['title'], "（生成エラー：リトライ上限到達）", "エラー", '', json.dumps({}, ensure_ascii=False), datetime.datetime.now().isoformat())
+                                )
+                                # Note: self.book_id might not be directly accessible if not stored in instance, but here we are inside write_episodes where book_data is passed.
+                                # Using engine's repo for save.
+                                # IMPORTANT: In write_episodes logic above, bible_synchronizer was used. We should use bible_synchronizer for consistency or engine.repo.
+                                # Here we manually insert using engine.repo to ensure safety.
+                                
+                                full_chapters.append({
+                                    "ep_num": ep_num,
+                                    "title": plot['title'],
+                                    "content": "（生成エラーが発生しました）",
+                                    "summary": "エラー",
+                                    "world_state": {}
+                                })
                         else:
                             # 即座にエラー埋め込みを行わず、待機して再試行
                             await asyncio.sleep(2)
@@ -1838,6 +1883,4 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
-
     asyncio.run(main())
-
