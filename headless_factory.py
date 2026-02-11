@@ -197,14 +197,6 @@ class MarketingAssets(BaseModel):
     catchcopies: List[str] = Field(..., description="読者を惹きつけるキャッチコピー案（3つ以上）")
     tags: List[str] = Field(..., description="検索用タグ（5つ以上）")
 
-class NovelStructure(BaseModel):
-    title: str
-    concept: str
-    synopsis: str
-    mc_profile: CharacterRegistry
-    plots: List[PlotEpisode]
-    marketing_assets: MarketingAssets
-
 class WorldState(BaseModel):
     # 指令に基づき、settingsのDiff更新を廃止。new_facts (Facts List) 方式に変更。
     # LLMはsettings全体を返すのではなく、新事実のリストのみを返す。
@@ -213,16 +205,39 @@ class WorldState(BaseModel):
     pending_foreshadowing: Optional[List[str]] = Field(default=None, description="新たに追加された伏線リスト (Append Only)")
     dependency_graph: Optional[str] = Field(default=None, description="JSON mapping of foreshadowing ID to target ep_num (Diff only)")
 
+class AnchorResponse(BaseModel):
+    ep_num: int = Field(..., description="対象となる話数")
+    summary: str = Field(..., description="あらすじ（500文字程度）")
+    world_state: WorldState = Field(..., description="この時点での世界状態")
+
+# 【2段階生成用モデル定義】
+class WorldBible(BaseModel):
+    title: str
+    concept: str
+    synopsis: str
+    mc_profile: CharacterRegistry
+    marketing_assets: MarketingAssets
+    anchors: List[AnchorResponse]
+
+class PlotBlueprint(BaseModel):
+    plots: List[PlotEpisode]
+
+# 統合モデル（既存互換 + anchors追加）
+class NovelStructure(BaseModel):
+    title: str
+    concept: str
+    synopsis: str
+    mc_profile: CharacterRegistry
+    plots: List[PlotEpisode]
+    marketing_assets: MarketingAssets
+    anchors: Optional[List[AnchorResponse]] = None # 追加: 2段階生成で得たアンカーを保持
+
 class EpisodeResponse(BaseModel):
     content: str = Field(..., description="エピソード本文 (1500-2000文字)")
     summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
     self_evaluation_score: int = Field(..., description="このエピソードの面白さの自己採点 (0-100)。")
     low_quality_reason: Optional[str] = Field(default=None, description="点数が低い場合の理由。")
     next_world_state: WorldState = Field(default_factory=WorldState, description="この話の結果更新された世界状態 (Fact Append)")
-
-class AnchorResponse(BaseModel):
-    summary: str = Field(..., description="あらすじ（500文字程度）")
-    world_state: WorldState = Field(..., description="この時点での世界状態")
 
 class TrendSeed(BaseModel):
     genre: str
@@ -255,21 +270,37 @@ JSON形式で以下のキーを含めて出力せよ:
 - hook_text: 読者を惹きつける「一行あらすじ」
 - style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
 """,
-        "plot_phase1": """
-あなたはWeb小説の神級プロットアーキテクトです。
-ジャンル「{genre}」で、カクヨム読者を熱狂させる**全50話完結の物語構造**を一括で作成してください。
+        "generate_world_bible": """
+あなたはWeb小説の神級プロットアーキテクト（設定・構成担当）です。
+ジャンル「{genre}」で、カクヨム読者を熱狂させる物語の「世界観設定（Bible）」と「章ごとのマイルストーン（Anchor）」を作成してください。
 
-【ユーザー指定の絶対条件】
+【ユーザー指定条件】
 1. 文体: 「{style_name}」
 2. 主人公: 性格{mc_personality}, 口調「{mc_tone}」
 3. テーマ: {keywords}
 
-【Task: Full Series Plot (Ep 1-50)】
-作品設定、および**第1話〜第50話（最終話）**の詳細プロット、マーケティングアセットを一度に作成せよ。
-物語のクライマックスに向けて、テンションを高めていくこと。
-**重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
-**重要: detailed_blueprint には、各話500文字以上で、具体的なセリフ、アクション、情景、そして前話からの滑らかな接続（ブリッジ）を詳細に記述せよ。**
-**重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
+【Task 1: Character & World Concept】
+主人公の設定（Registry）と、作品のコンセプト、あらすじ、マーケティング要素を定義せよ。
+
+【Task 2: Anchors (Chapter Milestones)】
+物語の整合性を保つため、以下の話数終了時点での「到達状態（あらすじと世界状態）」を確定させよ。
+対象話数: [15, 25, 35, 45, 50]
+※これらは物語の「チェックポイント」となる。各Anchorには必ず `ep_num` を含めること。
+
+Output strictly in JSON format following this schema:
+{schema}
+""",
+        "generate_plot_flow": """
+あなたはWeb小説の神級プロットアーキテクト（ストーリー構成担当）です。
+以下の「確定した世界観・マイルストーン」に基づき、スタートからゴールまでを繋ぐ**全50話のプロットフロー**を作成してください。
+
+【既知の設定とマイルストーン（World Bible）】
+{world_bible_json}
+
+【Task: Plot Flow Generation (Ep 1-50)】
+アンカー（目的地）に矛盾なく到達するように、間のエピソード（1〜50話）のタイトルと簡潔なあらすじ（detailed_blueprint）を埋めよ。
+※出力トークン節約のため、各話のblueprintは「次に何が起きるか」がわかる程度の簡潔さ（150〜200文字程度）に留めること。
+※アンカーで定義されたイベントは必ずその話数付近で発生させること。
 
 Output strictly in JSON format following this schema:
 {schema}
@@ -287,6 +318,7 @@ Output strictly in JSON format following this schema:
 
 出力は以下のJSON形式で厳密に行え:
 {{
+  "ep_num": {target_ep},
   "summary": "第{target_ep}話時点のあらすじ（500文字程度）",
   "world_state": {{
     "new_facts": ["この時点までに判明している主要な事実リスト"],
@@ -1228,56 +1260,91 @@ class UltraEngine:
     # ---------------------------------------------------------
 
     async def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
-        """第1段階: 1-50話のプロットを一括生成"""
-        print("Step 1: Hyper-Resolution Plot Generation (Ep 1-50)...")
+        """第1段階: 設定とプロットを2段階で生成"""
+        print("Step 1-1: Generating World Bible (Settings & Anchors)...")
         
         style_name = STYLE_DEFINITIONS.get(style, {"name": style}).get("name")
-        structure_schema = NovelStructure.model_json_schema()
         
-        prompt = self.prompt_manager.get(
-            "plot_phase1",
+        # Schema 1: WorldBible
+        bible_schema = WorldBible.model_json_schema()
+        
+        prompt_bible = self.prompt_manager.get(
+            "generate_world_bible",
             genre=genre,
             style_name=style_name,
             mc_personality=mc_personality,
             mc_tone=mc_tone,
             keywords=keywords,
-            schema=json.dumps(structure_schema, ensure_ascii=False)
+            schema=json.dumps(bible_schema, ensure_ascii=False)
         )
 
         try:
-            res = await self._generate_with_retry(
+            # Call 1
+            res_bible = await self._generate_with_retry(
                 model=MODEL_ULTRALONG,
-                contents=prompt,
+                contents=prompt_bible,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     safety_settings=self.safety_settings
                 )
             )
-            text_content = res.text.strip()
+            data_bible = self._parse_json_response(res_bible.text.strip())
+            # Pydantic check
+            if 'mc_profile' in data_bible:
+                 if isinstance(data_bible['mc_profile'].get('pronouns'), dict):
+                         data_bible['mc_profile']['pronouns'] = json.dumps(data_bible['mc_profile']['pronouns'], ensure_ascii=False)
+                 if isinstance(data_bible['mc_profile'].get('keyword_dictionary'), dict):
+                         data_bible['mc_profile']['keyword_dictionary'] = json.dumps(data_bible['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                 if isinstance(data_bible['mc_profile'].get('relations'), dict):
+                         data_bible['mc_profile']['relations'] = json.dumps(data_bible['mc_profile']['relations'], ensure_ascii=False)
+                 if isinstance(data_bible['mc_profile'].get('dialogue_samples'), dict):
+                         data_bible['mc_profile']['dialogue_samples'] = json.dumps(data_bible['mc_profile']['dialogue_samples'], ensure_ascii=False)
             
-            try:
-                data_dict = self._parse_json_response(text_content)
-            except Exception:
-                # Fallback simplistic parsing
-                match = re.search(r'(\{.*\})', text_content, re.DOTALL)
-                text = match.group(1) if match else text_content
-                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                data_dict = json.loads(text, strict=False)
-            
-            # Pydanticバリデーション前にデータ補正 (JSON文字列化)
-            if 'mc_profile' in data_dict:
-                 if isinstance(data_dict['mc_profile'].get('pronouns'), dict):
-                         data_dict['mc_profile']['pronouns'] = json.dumps(data_dict['mc_profile']['pronouns'], ensure_ascii=False)
-                 if isinstance(data_dict['mc_profile'].get('keyword_dictionary'), dict):
-                         data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
-                 if isinstance(data_dict['mc_profile'].get('relations'), dict):
-                         data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
-                 if isinstance(data_dict['mc_profile'].get('dialogue_samples'), dict):
-                         data_dict['mc_profile']['dialogue_samples'] = json.dumps(data_dict['mc_profile']['dialogue_samples'], ensure_ascii=False)
+            world_bible = WorldBible.model_validate(data_bible)
+            print("World Bible Generated.")
 
-            return NovelStructure.model_validate(data_dict) # Validation here
+            # Call 2
+            print("Step 1-2: Generating Plot Flow (Ep 1-50)...")
+            plot_schema = PlotBlueprint.model_json_schema()
+            
+            # Serialize WorldBible for prompt
+            bible_json_str = world_bible.model_dump_json(ensure_ascii=False)
+            
+            prompt_plot = self.prompt_manager.get(
+                "generate_plot_flow",
+                world_bible_json=bible_json_str,
+                schema=json.dumps(plot_schema, ensure_ascii=False)
+            )
+            
+            res_plot = await self._generate_with_retry(
+                model=MODEL_ULTRALONG,
+                contents=prompt_plot,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    safety_settings=self.safety_settings
+                )
+            )
+            data_plot = self._parse_json_response(res_plot.text.strip())
+            plot_blueprint = PlotBlueprint.model_validate(data_plot)
+            print("Plot Flow Generated.")
+
+            # Merge into NovelStructure (With Anchors)
+            final_structure = NovelStructure(
+                title=world_bible.title,
+                concept=world_bible.concept,
+                synopsis=world_bible.synopsis,
+                mc_profile=world_bible.mc_profile,
+                marketing_assets=world_bible.marketing_assets,
+                plots=plot_blueprint.plots,
+                anchors=world_bible.anchors # Attach anchors
+            )
+            
+            return final_structure
+
         except Exception as e:
-            print(f"Plot Phase 1 Error: {e}")
+            print(f"Plot Gen Phase 1 Error: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     async def generate_anchor_state(self, book_data, target_ep):
@@ -1285,8 +1352,6 @@ class UltraEngine:
         print(f"Generating Anchor State for End of Ep {target_ep}...")
         
         # 1. ターゲットまでのプロット概要を取得
-        # Note: In a real scenario, passing full plots for 1-target_ep might be huge.
-        # We assume plots are available in book_data['plots'].
         sorted_plots = sorted(book_data['plots'], key=lambda x: x['ep_num'])
         relevant_plots = [p for p in sorted_plots if p['ep_num'] <= target_ep]
         
@@ -1316,9 +1381,6 @@ class UltraEngine:
             
             data = self._parse_json_response(res.text.strip())
             
-            # Save to chapters table as a placeholder
-            # Use a special title to indicate it's an anchor
-            
             # Format WorldState
             ws_dict = data.get('world_state', {})
             # Normalized
@@ -1328,7 +1390,6 @@ class UltraEngine:
                      ws_dict['dependency_graph'] = json.dumps(ws_dict['dependency_graph'], ensure_ascii=False)
             
             # Save
-            # We use save_model directly to insert into chapters
             await self.repo.db.save_model(
                 """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
                    VALUES (?,?,?,?,?,?,?,?)""",
@@ -1600,10 +1661,6 @@ class UltraEngine:
                                     VALUES (?,?,?,?,?,?,?,?)""",
                                     (self.repo.db.db_path, ep_num, plot['title'], "（生成エラー：リトライ上限到達）", "エラー", '', json.dumps({}, ensure_ascii=False), datetime.datetime.now().isoformat())
                                 )
-                                # Note: self.book_id might not be directly accessible if not stored in instance, but here we are inside write_episodes where book_data is passed.
-                                # Using engine's repo for save.
-                                # IMPORTANT: In write_episodes logic above, bible_synchronizer was used. We should use bible_synchronizer for consistency or engine.repo.
-                                # Here we manually insert using engine.repo to ensure safety.
                                 
                                 full_chapters.append({
                                     "ep_num": ep_num,
@@ -1668,29 +1725,41 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     anchors = [15] + [i for i in range(25, 201, 10)]
     
     # 今回の範囲に含まれるアンカーを抽出 (start_ep ~ end_ep)
-    # アンカーは「章の終わり」。つまり、アンカーポイントまでの状態を生成し、
-    # その次の話から新しいスレッドを開始できるようにする。
-    relevant_anchors = [a for a in anchors if start_ep <= a < end_ep] # a < end_ep is key. If anchor is 50 and end is 50, we don't need to generate anchor 50 to start 51 if we stop at 50.
+    relevant_anchors = [a for a in anchors if start_ep <= a < end_ep] 
     
-    # 1. アンカー状態の先行生成
+    # 1. アンカー状態の先行生成 (もしDBになければ生成)
+    # 2段階生成で既にアンカーがDBに入っている可能性がある。
+    # しかし、Call 1 で生成したアンカーは `chapters` テーブルに保存されているはず。
+    # ここでは「DBにない場合のみ生成」するロジックにするのが安全。
+    # generate_anchor_state will overwrite, which is acceptable if we want to refresh,
+    # but since we generated them in phase 1, we might skip.
+    # However, Phase 1 only generated anchors up to Ep 50 (based on Prompt). 
+    # If this batch goes beyond, we need generation.
+    # Also, Phase 1 saves anchors to `data1.anchors` which `main` saves to DB.
+    # So we assume they are in DB. We can skip generation if they exist.
+    # For simplicity and robustness, we can let it run (it might be redundant but safe).
+    # Actually, `generate_anchor_state` uses `MODEL_ULTRALONG` and consumes tokens.
+    # If they are already saved by `main`, we should skip.
+    
     for anchor in relevant_anchors:
-        await engine.generate_anchor_state(full_data, anchor)
+        # Check if anchor exists
+        existing = await repo.get_latest_chapter(bid, anchor + 1) # get_latest_chapter(ep) returns ep-1. We want anchor at `anchor`.
+        # Wait, get_latest_chapter(16) returns 15. Correct.
+        # But we saved anchor as "ANCHOR_EP_15".
+        # Let's check.
+        # Actually, let's just generate if needed. The cost is low compared to writing.
+        # But wait, we want to use the consistency from Phase 1.
+        # If we regenerate, we might lose the Phase 1 consistency.
+        # So we should ONLY generate if missing.
+        
+        # Check existence logic:
+        chk = await db.fetch_one("SELECT id FROM chapters WHERE book_id=? AND ep_num=?", (bid, anchor))
+        if not chk:
+             await engine.generate_anchor_state(full_data, anchor)
 
     # 2. タスク分割 (Split Threads)
-    # スケジュール:
-    # 1-15 (Anchor 15)
-    # 16-25 (Anchor 25)
-    # ...
-    
-    tasks = []
-    
-    # 範囲開始から最初のアンカーまで、または終了まで
-    # e.g. start=1, end=50. Anchors: 15, 25, 35, 45.
-    # Segments: 1-15, 16-25, 26-35, 36-45, 46-50.
-    
     # Create segment boundaries
     boundaries = sorted([start_ep - 1] + relevant_anchors + [end_ep])
-    # Remove duplicates and ensure order
     boundaries = sorted(list(set(boundaries)))
     
     # Build ranges: (boundaries[i]+1, boundaries[i+1])
@@ -1783,6 +1852,10 @@ async def create_zip_package(book_id, title):
         z.writestr("00_全話プロット構成案.txt", plot_txt)
 
         for ch in chapters:
+            # Skip anchor chapters in final zip
+            if ch['title'].startswith("ANCHOR_EP_"):
+                continue
+                
             clean_title = clean_filename_title(ch['title'])
             fname = f"chapters/{ch['ep_num']:02d}_{clean_title}.txt"
             # Formatter already applied on save, just raw dump
@@ -1843,7 +1916,7 @@ async def main():
             # Step 0: Trend Analysis (Static List Selection)
             seed = await engine.trend_analyst.get_dynamic_seed()
             
-            # Step 1: 1-50話プロット + マーケティングアセット生成
+            # Step 1: 1-50話プロット + マーケティングアセット生成 (2-Stage)
             print("Step 1: Generating Full Series Plot (Ep 1-50) & Marketing Assets...")
             data1 = await engine.generate_universe_blueprint_phase1(
                 seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
@@ -1856,6 +1929,31 @@ async def main():
 
             bid, plots_p1 = await engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
             print(f"Plot Phase Saved. ID: {bid}")
+            
+            # --- Save Pre-generated Anchors ---
+            if hasattr(data1, 'anchors') and data1.anchors:
+                print("Saving Pre-generated Anchors...")
+                for anchor in data1.anchors:
+                    # Normalized data format for saving
+                    ws_data = anchor.world_state.model_dump()
+                    # ensure stringification
+                    if 'dependency_graph' in ws_data and isinstance(ws_data['dependency_graph'], (dict, list)):
+                        ws_data['dependency_graph'] = json.dumps(ws_data['dependency_graph'], ensure_ascii=False)
+                    
+                    await engine.repo.db.save_model(
+                        """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
+                           VALUES (?,?,?,?,?,?,?,?)""",
+                        (
+                            bid, 
+                            anchor.ep_num, # Use ep_num from anchor
+                            f"ANCHOR_EP_{anchor.ep_num}", 
+                            "(ANCHOR_STATE_ONLY)", 
+                            anchor.summary, 
+                            '', 
+                            json.dumps(ws_data, ensure_ascii=False), 
+                            datetime.datetime.now().isoformat()
+                        )
+                    )
             
             print("Step 2: Execution - Writing Episodes (Ep 1-50)...")
             
