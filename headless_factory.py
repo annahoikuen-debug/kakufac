@@ -130,6 +130,7 @@ class SceneDetail(BaseModel):
 class PlotEpisode(BaseModel):
     ep_num: int
     title: str
+    detailed_blueprint: str = Field(..., description="物語の設計図。500文字以上で、具体的な会話、情景、アクションの流れ、前話からの接続を記述すること。")
     setup: str
     conflict: str
     climax: str
@@ -148,6 +149,7 @@ class CharacterRegistry(BaseModel):
     pronouns: str = Field(..., description="JSON string mapping keys (e.g., '一人称', '二人称') to values")
     keyword_dictionary: str = Field(..., description="JSON string mapping unique terms to their reading or definition")
     relations: str = Field(default="{}", description="JSON string mapping character names to relationship status/feelings (e.g. {'ヒロインA': '好意(90)', 'ライバルB': '敵対(80)'})")
+    dialogue_samples: str = Field(default="{}", description="JSON string mapping specific situations/emotions to sample dialogue lines.")
 
     def to_dict(self):
         return self.model_dump()
@@ -165,7 +167,11 @@ class CharacterRegistry(BaseModel):
         try: r_json = json.loads(self.relations) if isinstance(self.relations, str) else self.relations
         except: pass
 
-        prompt = "【CHARACTER REGISTRY】\n"
+        d_json = {}
+        try: d_json = json.loads(self.dialogue_samples) if isinstance(self.dialogue_samples, str) else self.dialogue_samples
+        except: pass
+
+        prompt = "【CHARACTER REGISTRY: ABSOLUTE RULES】\n"
         prompt += f"■ {self.name} (主人公)\n"
         prompt += f"  - Tone: {self.tone}\n"
         prompt += f"  - Personality: {self.personality}\n"
@@ -173,6 +179,7 @@ class CharacterRegistry(BaseModel):
         prompt += f"  - Monologue Style: {self.monologue_style}\n"
         prompt += f"  - Pronouns: {json.dumps(p_json, ensure_ascii=False)}\n"
         prompt += f"  - Relations: {json.dumps(r_json, ensure_ascii=False)}\n"
+        prompt += f"  - Dialogue Samples (Must Mimic): {json.dumps(d_json, ensure_ascii=False)}\n"
         return prompt
 
 class QualityReport(BaseModel):
@@ -228,30 +235,27 @@ class TrendSeed(BaseModel):
 class PromptManager:
     TEMPLATES = {
         "system_rules": """# SYSTEM RULES: STRICT ADHERENCE REQUIRED
-【キャラクター定義の絶対遵守】
-以下のキャラクター設定を物語の最後まで**固定**せよ。途中で口調や一人称を変更することは「重大なエラー」とみなす。
-
+【キャラクター・ロック（絶対遵守）】
+以下のキャラクター定義から1ミリでも逸脱した場合、それは重大なエラーとみなされる。
 1. **主人公名**: {mc_name}
 2. **基本口調**: 「{mc_tone}」
-3. **性格特性**: {mc_personality}
-4. **一人称・二人称**: {pronouns}
+3. **一人称・二人称**: {pronouns}
    ※「俺」設定なのに「僕」や「私」を使うことを固く禁ずる。
-   ※相手への呼び方（お前、あんた、貴様など）も固定せよ。
+4. **関係性の固定**:
+   {relations}
+   ※上記の関係性（好意、敵対、恐怖など）に基づく態度を常に維持せよ。
+5. **口調サンプル**:
+   {mc_dialogue_samples}
+   ※このサンプルのニュアンスを全ての会話で再現せよ。
 
-5. [KEYWORD DICTIONARY] 以下の用語・ルビ・特殊呼称を必ず使用せよ: {keywords}
-6. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
-   ※単なる状況説明ではなく、主人公のフィルターを通した『歪んだ世界観』として情景を記述せよ。
-7. [RELATIONSHIPS] 現在の他者との関係性を口調や態度に反映せよ: {relations}
-8. [NUMBERS] 金額・回数・ステータス値などの数量は「算用数字（1, 2, 100）」を使用し、四字熟語や慣用句（一石二鳥、百戦錬磨など）は「漢数字」を使用せよ。
+【世界観の反映】
+1. [KEYWORD DICTIONARY] 以下の用語・ルビ・特殊呼称を必ず使用し、世界観に厚みを持たせよ: {keywords}
+2. [MONOLOGUE STYLE] 独白・心理描写は以下の癖を反映せよ: {monologue_style}
 
 【日本語作法・厳格なルール】
-1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。「…」や「...」は禁止。
+1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。
 2. **感嘆符・疑問符**: 「！」や「？」の直後には必ず全角スペースを1つ空けよ（文末の閉じ括弧直前を除く）。
-   - OK: 「なんだと！？　ふざけるな！」
-   - NG: 「なんだと!?ふざけるな!」
-3. **改行の演出**: 
-   - 場面転換や衝撃的な瞬間の前には、空白行を挟んで「溜め」を作れ。
-   - セリフだけで進行せず、適度な改行でリズムを整えよ。
+3. **改行の演出**: 場面転換や衝撃的な瞬間の前には、空白行を挟んで「溜め」を作れ。
 
 【文体指定: {style_name}】
 {style_instruction}
@@ -261,40 +265,35 @@ class PromptManager:
 【執筆プロトコル: 一括生成モード】
 以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
 
-1. **出力文字数**:
+1. **ブリッジ・コンテキスト（前話との接続）**:
+   - **直前のシーンから1秒も時間を飛ばさずに書き始めよ。**
+   - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。唐突な場面転換は禁止する。
+
+2. **出力文字数**:
    - 必ず **1,500文字〜2,000文字** の範囲に収めること。
-   - 短すぎず、長すぎて出力が途切れないように調整せよ。
 
-2. **構成（起承転結）**:
+3. **構成（起承転結）**:
    - 1度の出力の中に「導入・展開・クライマックス・結末（引き）」の抑揚をつけよ。
-   - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。読者に「ここで終わるのか！？」という欠乏感を与えよ。
+   - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。
 
-3. **密度**:
+4. **密度**:
    - 「〜ということがあった」のようなあらすじ要約を厳禁とする。
    - 情景描写、五感、セリフ、内面描写を交え、読者が没入できる小説形式で記述せよ。
-   - 会話文だけで進行させず、必ず地の文での状況描写を挟むこと。
-
-4. **演出と強調（カクヨム記法）**:
-   - **決め台詞（キラーフレーズ）の直前と直後には必ず空行を入れ、独立させよ。**
-   - **重要な名詞やキーワードには、カクヨム記法の傍点 《《対象》》 を自ら付与せよ。**
 
 5. **【最重要】カクヨム・メソッド（リアクション）**:
     - 主人公の行動に対する「周囲の反応」を必ず描写せよ。
     - 敵：「バカな…ありえない！」「ひ、ひぃぃ！」という情けない悲鳴。
     - 味方/観衆：「あいつ、また何かやったのか？」「これが…Sランクの力…！」という驚愕と解説。
-    - 事実の説明ではなく、これら「他者の感情」を通じて主人公の凄さを表現せよ。
 """,
         "cliffhanger_protocol": """
 【究極の「引き」生成ロジック: Cliffhanger Protocol】
 各エピソードの結末は、文脈に応じて最も効果的な「引き」を自律的に判断し、**「読者が次を読まずにいられない状態」**を強制的に作り出せ。
 
 1. **逆算式・ゴール地点固定**:
-   - あなたは「結末の衝撃」から逆算して伏線を張る構成作家である。
    - 本文執筆前に、その話の**「最悪、あるいは最高の結末（最後の一行）」**を確定せよ。
    - 結末をぼかさないこと。予定調和な終わり方をしないこと。
 
 2. **テンション・カタストロフィ**:
-   - あなたは解決の1秒前に筆を置く、冷酷なディレクターである。
    - 絶体絶命の瞬間、あるいは秘密が暴かれる**「直前」で物語を強制終了**せよ。
    - 読者が「救い」や「納得」を得る記述を一切排除せよ。安心させず、解決しきらないこと。
 """,
@@ -363,6 +362,7 @@ JSON出力形式:
 作品設定、前半パートである**第1話〜第25話**の詳細プロット、マーケティングアセットを作成せよ。
 前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
 **重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
+**重要: detailed_blueprint には、各話500文字以上で、具体的なセリフ、アクション、情景、そして前話からの滑らかな接続（ブリッジ）を詳細に記述せよ。**
 **重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
 
 Output strictly in JSON format following this schema:
@@ -382,6 +382,7 @@ Output strictly in JSON format following this schema:
 【Task】
 後半の展開を劇的に、かつ整合性が取れるように作成せよ。
 **重要: 各エピソードは「Next Hook」で終わらせること。**
+**重要: detailed_blueprint には、各話500文字以上で、具体的なセリフ、アクション、情景、そして前話からの滑らかな接続（ブリッジ）を詳細に記述せよ。**
 **重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
 
 Output strictly in JSON format following this schema:
@@ -397,7 +398,7 @@ Output strictly in JSON format following this schema:
 {pacing_instruction}
 
 【Role: Novelist ({current_model})】
-以下のプロットに基づき、**第{ep_num}話**の本文を一括執筆し、結果をJSON形式で出力せよ。
+以下の詳細な設計図（Blueprint）に基づき、**第{ep_num}話**の本文を一括執筆し、結果をJSON形式で出力せよ。
 1. `content`: 本文 (1500-2000文字)
 2. `summary`: 次話へ繋ぐための要約
 3. `next_world_state`: この話で確定した設定・変化した状態・解決した謎・新たな伏線を反映した最新のBible状態
@@ -406,10 +407,11 @@ Output strictly in JSON format following this schema:
 {pending_foreshadowing}
 {must_resolve_instruction}
 
-【前話からの文脈】
-...{prev_context_text}
+【Bridge Context (前話からの接続・必須)】
+以下の文脈から1秒も時間を飛ばさず、直結するように書き始めよ。
+{prev_context_text}
 
-【今回のプロット】
+【今回の設計図 (Detailed Blueprint)】
 {episode_plot_text}
 
 【World Context (Bible v{expected_version})】
@@ -430,7 +432,7 @@ Output strictly in JSON format following this schema:
 - Improvement Advice: {improvement_advice}
 - Suggested Diff: {suggested_diff}
 
-上記の指摘を反映し、特に「引きの強さ」と「カクヨム読者への訴求力」を飛躍的に高めた原稿を作成せよ。
+上記の指摘を反映し、特に「引きの強さ」と「カクヨム訴求力」を飛躍的に高めた原稿を作成せよ。
 
 【カクヨム訴求力強化指令】
 以下のテクニックを使って「カクヨム訴求力」を強制的に高めよ:
@@ -548,7 +550,12 @@ class DatabaseManager:
                     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
                 );
             ''')
-        # plotテーブル更新: stress, catharsis追加
+        # plotテーブル更新: stress, catharsis追加, detailed_blueprint追加
+        # Note: existing DBs will need migration or recreate. This assumes fresh start or handles error.
+        try:
+            await self.execute('ALTER TABLE plot ADD COLUMN detailed_blueprint TEXT')
+        except: pass
+
         await self.execute('''
                 CREATE TABLE IF NOT EXISTS plot (
                     book_id INTEGER, ep_num INTEGER, title TEXT, summary TEXT,
@@ -559,7 +566,7 @@ class DatabaseManager:
                     cliffhanger_score INTEGER DEFAULT 0,
                     status TEXT DEFAULT 'planned', 
                     setup TEXT, conflict TEXT, climax TEXT, resolution TEXT,
-                    scenes TEXT,
+                    scenes TEXT, detailed_blueprint TEXT,
                     PRIMARY KEY(book_id, ep_num),
                     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
                 );
@@ -717,11 +724,11 @@ class NovelRepository:
             scenes_list = p.get('scenes', []) 
             
             await self.db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes, detailed_blueprint)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (bid, p['ep_num'], full_title, main_ev, 
                  p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'),
-                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
+                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list, p.get('detailed_blueprint', ''))
             )
             saved_plots.append(p)
         return bid, saved_plots
@@ -734,11 +741,11 @@ class NovelRepository:
             scenes_list = p.get('scenes', [])
             
             await self.db.save_model(
-                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO plot (book_id, ep_num, title, main_event, setup, conflict, climax, resolution, tension, stress, catharsis, status, scenes, detailed_blueprint)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (book_id, p['ep_num'], full_title, main_ev, 
                  p.get('setup'), p.get('conflict'), p.get('climax'), p.get('next_hook'), 
-                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list)
+                 p.get('tension', 50), p.get('stress', 0), p.get('catharsis', 0), 'planned', scenes_list, p.get('detailed_blueprint', ''))
             )
             saved_plots.append(p)
         return saved_plots
@@ -1017,6 +1024,7 @@ class UltraEngine:
     def _generate_system_rules(self, char_registry: CharacterRegistry, style="style_web_standard"):
         style_def = STYLE_DEFINITIONS.get(style, STYLE_DEFINITIONS["style_web_standard"])
         relations_str = char_registry.relations
+        dialogue_samples_str = char_registry.dialogue_samples
         
         return self.prompt_manager.get(
             "system_rules",
@@ -1027,6 +1035,7 @@ class UltraEngine:
             keywords=char_registry.keyword_dictionary, 
             monologue_style=char_registry.monologue_style,
             relations=relations_str,
+            mc_dialogue_samples=dialogue_samples_str,
             style_name=style_def["name"],
             style_instruction=style_def["instruction"]
         )
@@ -1191,6 +1200,8 @@ class UltraEngine:
                        data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
                  if isinstance(data_dict['mc_profile'].get('relations'), dict):
                        data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
+                 if isinstance(data_dict['mc_profile'].get('dialogue_samples'), dict):
+                       data_dict['mc_profile']['dialogue_samples'] = json.dumps(data_dict['mc_profile']['dialogue_samples'], ensure_ascii=False)
 
             return NovelStructure.model_validate(data_dict) # Validation here
         except Exception as e:
@@ -1251,10 +1262,11 @@ class UltraEngine:
         try:
             char_registry = CharacterRegistry(**book_data['mc_profile'])
         except:
-            char_registry = CharacterRegistry(name="主人公", tone="標準", personality="", ability="", monologue_style="", pronouns="{}", keyword_dictionary="{}", relations="{}")
+            char_registry = CharacterRegistry(name="主人公", tone="標準", personality="", ability="", monologue_style="", pronouns="{}", keyword_dictionary="{}", relations="{}", dialogue_samples="{}")
         
         # 前話の文脈取得
         prev_ep_row = await db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
+        # 修正: ブリッジ用文脈の強化。直近の500文字を取得し、プロンプトで「ここから繋げ」と指示する。
         prev_context_text = prev_ep_row['content'][-500:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
 
         system_rules = self._generate_system_rules(char_registry, style=style_dna_str)
@@ -1281,8 +1293,16 @@ class UltraEngine:
                     s_dict = s.model_dump() if hasattr(s, 'model_dump') else s
                     scenes_str += f"- {s_dict.get('location','')}: {s_dict.get('action','')} ({s_dict.get('dialogue_point','')} - {s_dict.get('role', '')})\n"
 
+            # 修正: 詳細プロット(detailed_blueprint)の利用
+            blueprint_str = plot.get('detailed_blueprint', '')
+            if not blueprint_str:
+                blueprint_str = "（詳細プロットなし。標準構成で執筆せよ）"
+
             episode_plot_text = f"""
 【Episode Title】{plot['title']}
+【Detailed Blueprint (500文字以上の詳細設計図)】
+{blueprint_str}
+
 【Setup】 {plot.get('setup', '')}
 【Conflict】 {plot.get('conflict', '')}
 【Climax】 {plot.get('climax', '')}
@@ -1343,6 +1363,9 @@ class UltraEngine:
                         if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
                             gen_config_args["response_mime_type"] = "application/json"
                         
+                        # TPM 対策: 実行前に少し待つ
+                        await asyncio.sleep(5.0) 
+
                         res = await self._generate_with_retry(
                             model=current_model, 
                             contents=write_prompt,
@@ -1486,9 +1509,9 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
         try:
             mc_profile = json.loads(mc['registry_data'])
         except:
-             mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}"}
+             mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}", "dialogue_samples":"{}"}
     else:
-        mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}"}
+        mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}", "dialogue_samples":"{}"}
 
     for p in plots:
         if p.get('scenes'):
@@ -1500,10 +1523,11 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
 
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
     
-    semaphore = asyncio.Semaphore(2) 
+    # 修正: TPM15k対策。並列数を1に制限して直列化し、リクエスト集中を防ぐ
+    semaphore = asyncio.Semaphore(1) 
 
     tasks = []
-    print(f"Starting Machine-Gun Parallel Writing (Ep {start_ep} - {end_ep})...")
+    print(f"Starting Serial Writing (TPM Safe Mode) (Ep {start_ep} - {end_ep})...")
 
     target_plots = [p for p in plots if start_ep <= p['ep_num'] <= end_ep]
 
@@ -1592,6 +1616,7 @@ async def create_zip_package(book_id, title):
             plot_txt += f"第{p['ep_num']}話：{p['title']}\n"
             plot_txt += f"--------------------------------------------------\n"
             plot_txt += f"・メインイベント: {p.get('main_event', '')}\n"
+            plot_txt += f"・詳細設計図: {p.get('detailed_blueprint', '')}\n"
             plot_txt += f"・導入 (Setup): {p.get('setup', '')}\n"
             plot_txt += f"・展開 (Conflict): {p.get('conflict', '')}\n"
             plot_txt += f"・見せ場 (Climax): {p.get('climax', '')}\n"
