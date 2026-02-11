@@ -1456,7 +1456,7 @@ class UltraEngine:
     async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="style_web_standard"):
         """リライト処理 - Uses QA Engine within write loop via instruction"""
         rewritten_count = 0
-        semaphore = asyncio.Semaphore(1) 
+        semaphore = asyncio.Semaphore(2) 
         eval_map = {e['ep_num']: e for e in evaluations}
         tasks = []
         
@@ -1524,7 +1524,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
     
     # 修正: TPM15k対策。並列数を1に制限して直列化し、リクエスト集中を防ぐ
-    semaphore = asyncio.Semaphore(1) 
+    semaphore = asyncio.Semaphore(2) 
 
     tasks = []
     print(f"Starting Serial Writing (TPM Safe Mode) (Ep {start_ep} - {end_ep})...")
@@ -1738,4 +1738,5 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
+
     asyncio.run(main())
