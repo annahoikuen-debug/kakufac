@@ -10,6 +10,8 @@ import sqlite3
 import smtplib
 import math
 import asyncio
+import urllib.request
+import urllib.parse
 from typing import List, Optional, Dict, Any, Type, Union
 from enum import Enum
 from pydantic import BaseModel, Field, ValidationError
@@ -26,6 +28,9 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
+# Google Custom Search API Settings (TrendAnalyst用)
+CSE_API_KEY = os.environ.get("CSE_API_KEY")
+SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 
 # モデル設定
 MODEL_ULTRALONG = "gemini-3-flash-preview"
@@ -254,13 +259,15 @@ class PromptManager:
     TEMPLATES = {
         "trend_analysis_prompt": """
 あなたはカクヨム市場分析のプロフェッショナルです。
-「カクヨムの週間ランキング上位100作品」の傾向を模倣し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
+以下の「カクヨム・なろうのリアルタイムトレンド検索結果」を分析し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
 
-特に以下の4要素とトレンドの掛け合わせを優先すること:
-1. **追放・ざまぁ**: 理不尽な追放からの圧倒的逆転
-2. **現代ダンジョン**: 配信、探索、現実世界での無双
-3. **悪役令嬢**: 断罪回避、内政、溺愛
-4. **異世界転生**: チート能力、知識チート、スローライフ
+【最新トレンド検索結果】
+{search_context}
+
+特に以下の要素とトレンドの掛け合わせを優先すること:
+1. 流行している「ざまぁ」「追放」の具体的な変種
+2. 人気のダンジョン・配信設定のディテール
+3. 読者が求めている主人公の性格タイプ（俺様、慎重、サイコパス等）
 
 JSON形式で以下のキーを含めて出力せよ:
 - genre: ジャンル
@@ -605,6 +612,11 @@ class TextFormatter:
 # 1. データベース管理
 # ==========================================
 class DatabaseManager:
+    """
+    Low-level DB handler. 
+    NOTE: Direct usage of this class from business logic is prohibited.
+    Use NovelRepository instead.
+    """
     def __init__(self, db_path):
         self.db_path = db_path
         self.queue = asyncio.Queue()
@@ -835,7 +847,37 @@ class NovelRepository:
             saved_plots.append(p)
         return saved_plots
 
-    # --- Read / Fetch Methods (Moved from Task Functions) ---
+    # --- Bible / Chapter / Plot CRUD (Consolidated from Scattered Calls) ---
+    async def get_bible_latest(self, book_id: int):
+        """最新のBibleレコードを取得"""
+        return await self.db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (book_id,))
+
+    async def save_bible_node(self, book_id: int, settings, revealed, mysteries, foreshadowing, graph, version):
+        """Bibleの新規バージョンを保存"""
+        return await self.db.save_model(
+            "INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                book_id, settings, revealed, mysteries, foreshadowing, graph, version, datetime.datetime.now().isoformat()
+            )
+        )
+
+    async def save_chapter(self, book_id: int, ep_num: int, title: str, content: str, summary: str, world_state: str):
+        """チャプターを保存（アンカーや生成結果）"""
+        return await self.db.save_model(
+            """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (book_id, ep_num, title, content, summary, '', world_state, datetime.datetime.now().isoformat())
+        )
+
+    async def check_chapter_exists(self, book_id: int, ep_num: int):
+        """指定したエピソードのチャプターが存在するか確認"""
+        return await self.db.fetch_one("SELECT book_id FROM chapters WHERE book_id=? AND ep_num=?", (book_id, ep_num))
+
+    async def update_plot_status(self, book_id: int, ep_num: int, status: str):
+        """プロットのステータスを更新"""
+        await self.db.save_model("UPDATE plot SET status=? WHERE book_id=? AND ep_num=?", (status, book_id, ep_num))
+
+    # --- Read / Fetch Methods ---
     async def get_book(self, book_id: int):
         return await self.db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
 
@@ -853,7 +895,6 @@ class NovelRepository:
 
     async def get_latest_chapter(self, book_id: int, ep_num: int):
         """指定エピソードの直前のチャプターを取得"""
-        # Note: Updated to include world_state for anchor loading
         return await self.db.fetch_one("SELECT content, summary, world_state FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_id, ep_num - 1))
 
     async def get_recent_plot_metrics(self, book_id: int, current_ep: int, limit: int = 5):
@@ -861,6 +902,14 @@ class NovelRepository:
         return await self.db.fetch_all(
             "SELECT ep_num, stress, catharsis FROM plot WHERE book_id=? AND ep_num < ? ORDER BY ep_num DESC LIMIT ?",
             (book_id, current_ep, limit)
+        )
+    
+    async def save_error_chapter(self, book_id: int, ep_num: int, title: str, reason: str):
+        """エラー時のチャプターレコードを保存"""
+        await self.db.save_model(
+             """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
+                VALUES (?,?,?,?,?,?,?,?)""",
+             (book_id, ep_num, title, f"（生成エラー：{reason}）", "エラー", '', json.dumps({}, ensure_ascii=False), datetime.datetime.now().isoformat())
         )
 
 # ==========================================
@@ -870,10 +919,14 @@ class DynamicBibleManager:
     def __init__(self, book_id):
         self.book_id = book_id
         self._cache = {} 
+        # Low-level DB access hidden via repo would be better, but this class is tightly coupled logic.
+        # We will use the repo instance from the global scope or context if possible, 
+        # but for now we replace direct db calls with repo calls.
+        self.repo = NovelRepository(db)
     
     async def get_current_state(self) -> (WorldState, int):
-        # Always fetch fresh for locking context
-        row = await db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
+        # Always fetch fresh for locking context via Repo
+        row = await self.repo.get_bible_latest(self.book_id)
         if not row:
             state = WorldState(new_facts=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
             return state, 0
@@ -909,6 +962,7 @@ class BibleSynchronizer:
     def __init__(self, book_id):
         self.book_id = book_id
         self.bible_manager = DynamicBibleManager(book_id)
+        self.repo = NovelRepository(db)
 
     async def save_atomic(self, chapter_data: Dict[str, Any], next_state: WorldState):
         """
@@ -918,8 +972,8 @@ class BibleSynchronizer:
         # 1. 現在のBible状態を取得 (ロード)
         current_state_obj, current_ver = await self.bible_manager.get_current_state()
         
-        # Current DB values (not just the Diff object)
-        row = await db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
+        # Current DB values (not just the Diff object) via Repo
+        row = await self.repo.get_bible_latest(self.book_id)
         if row:
             curr_settings_str = row['settings']
             curr_revealed = json.loads(row['revealed']) if row['revealed'] else []
@@ -961,8 +1015,8 @@ class BibleSynchronizer:
 
         # 3. Formatterの適用（Chapter保存用）
         formatter = TextFormatter(None)
-        # Fetch keywords for formatting
-        mc = await db.fetch_one("SELECT registry_data FROM characters WHERE book_id=? AND role='主人公'", (self.book_id,))
+        # Fetch keywords for formatting via Repo
+        mc = await self.repo.get_main_character(self.book_id)
         k_dict = {}
         if mc and mc['registry_data']:
             try: 
@@ -973,31 +1027,30 @@ class BibleSynchronizer:
         
         content_formatted = await formatter.format(chapter_data['content'], k_dict=k_dict)
         
-        # 4. DBへのアトミック更新
+        # 4. DBへのアトミック更新 (Via Repo)
         # Bible Insert
-        await db.save_model(
-            "INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
-            (
-                self.book_id,
-                merged_settings,        
-                updated_revealed, 
-                updated_mysteries,
-                updated_foreshadowing,
-                merged_graph,
-                new_version,
-                datetime.datetime.now().isoformat()
-            )
+        await self.repo.save_bible_node(
+            self.book_id,
+            merged_settings,        
+            updated_revealed, 
+            updated_mysteries,
+            updated_foreshadowing,
+            merged_graph,
+            new_version
         )
         
         # Chapter Insert/Update
-        await db.save_model(
-            """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
-            (self.book_id, chapter_data['ep_num'], chapter_data.get('title', f"第{chapter_data['ep_num']}話"), content_formatted, chapter_data.get('summary', ''), '', next_state, datetime.datetime.now().isoformat())
+        await self.repo.save_chapter(
+            self.book_id,
+            chapter_data['ep_num'],
+            chapter_data.get('title', f"第{chapter_data['ep_num']}話"),
+            content_formatted,
+            chapter_data.get('summary', ''),
+            json.dumps(next_state.model_dump(), ensure_ascii=False) if hasattr(next_state, 'model_dump') else json.dumps(next_state, ensure_ascii=False)
         )
         
         # Plot Status Update
-        await db.save_model("UPDATE plot SET status='completed' WHERE book_id=? AND ep_num=?", (self.book_id, chapter_data['ep_num']))
+        await self.repo.update_plot_status(self.book_id, chapter_data['ep_num'], 'completed')
 
         return new_version
 
@@ -1009,38 +1062,79 @@ class TrendAnalyst:
     def __init__(self, engine):
         self.engine = engine
 
+    async def fetch_realtime_trends(self) -> str:
+        """
+        Google Custom Search API (CSE) または検索結果のシミュレーションを使用して、
+        現在のWeb小説トレンド（カクヨム、なろう等）の検索結果テキストを取得する。
+        """
+        queries = ["カクヨム 週間ランキング トレンド 2026", "なろう 流行りジャンル 分析 2026", "Web小説 トレンド キーワード"]
+        combined_results = ""
+
+        # Google CSE API Logic
+        if CSE_API_KEY and SEARCH_ENGINE_ID:
+            print("TrendAnalyst: Fetching trends via Google Custom Search API...")
+            try:
+                for q in queries:
+                    # CSE API Endpoint
+                    url = f"https://www.googleapis.com/customsearch/v1?key={CSE_API_KEY}&cx={SEARCH_ENGINE_ID}&q={urllib.parse.quote(q)}"
+                    
+                    # Async request using run_in_executor to avoid blocking
+                    def _request():
+                        with urllib.request.urlopen(url) as response:
+                             return json.loads(response.read().decode())
+                    
+                    data = await asyncio.to_thread(_request)
+                    
+                    if 'items' in data:
+                        for item in data['items'][:3]: # Top 3 results
+                            title = item.get('title', '')
+                            snippet = item.get('snippet', '')
+                            combined_results += f"Title: {title}\nSnippet: {snippet}\n\n"
+                    await asyncio.sleep(1) # Rate limit respect
+            except Exception as e:
+                print(f"CSE API Error: {e}. Falling back to internal knowledge.")
+                combined_results = "（APIエラーのため、AIの内部知識ベースから2026年のトレンドを予測します）"
+        else:
+            print("TrendAnalyst: CSE API Key not found. Using AI internal knowledge simulation.")
+            combined_results = "（外部検索が無効なため、AIの内部知識ベースから2026年のカクヨムトレンドを予測します）"
+        
+        return combined_results
+
     async def get_dynamic_seed(self) -> dict:
-        print("TrendAnalyst: Selecting from Static Trend List (No API Call)...")
-        # APIコールを廃止し、定義済みリストから選択
-        trend_seeds = [
-            {
+        print("TrendAnalyst: Analyzing Realtime Trends...")
+        
+        # 1. 検索結果（またはシミュレーションテキスト）の取得
+        search_context = await self.fetch_realtime_trends()
+
+        # 2. LLMによるトレンド分析とシード生成
+        prompt = self.engine.prompt_manager.get(
+            "trend_analysis_prompt",
+            search_context=search_context
+        )
+        
+        try:
+             res = await self.engine._generate_with_retry(
+                model=MODEL_MARKETING, # Use faster/analytical model
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    temperature=0.7
+                )
+             )
+             seed_data = self.engine._parse_json_response(res.text.strip())
+             print(f"★ Trend Analysis Result: {seed_data.get('genre', 'Unknown')} - {seed_data.get('hook_text', 'No hook')}")
+             return seed_data
+        except Exception as e:
+            print(f"Trend Analysis Failed: {e}. Using fallback.")
+            # Fallback safe seed
+            return {
                 "genre": "現代ダンジョン",
                 "keywords": "配信, 事故, 無双",
                 "personality": "冷静沈着だが承認欲求が少しある",
                 "tone": "俺",
                 "hook_text": "配信切り忘れで世界最強がバレる",
                 "style": "style_web_standard"
-            },
-            {
-                "genre": "ハイファンタジー",
-                "keywords": "追放, ざまぁ, スローライフ",
-                "personality": "お人好しだが怒ると怖い",
-                "tone": "僕",
-                "hook_text": "勇者パーティを追放されたので辺境で店を開いたら、魔王が常連になった",
-                "style": "style_slow_life"
-            },
-            {
-                "genre": "異世界転生",
-                "keywords": "悪役令嬢, 断罪回避, 内政",
-                "personality": "合理的で少し冷徹",
-                "tone": "私（わたくし）",
-                "hook_text": "断罪イベントの前日に前世の記憶を取り戻した",
-                "style": "style_villainess_elegant"
             }
-        ]
-        seed = random.choice(trend_seeds)
-        print(f"★ Trend Selected: {seed.get('genre', 'Unknown')} - {seed.get('hook_text', 'No hook')}")
-        return seed
 
 class PacingGraph:
     @staticmethod
@@ -1298,13 +1392,13 @@ class UltraEngine:
             # Pydantic check
             if 'mc_profile' in data_bible:
                  if isinstance(data_bible['mc_profile'].get('pronouns'), dict):
-                         data_bible['mc_profile']['pronouns'] = json.dumps(data_bible['mc_profile']['pronouns'], ensure_ascii=False)
+                          data_bible['mc_profile']['pronouns'] = json.dumps(data_bible['mc_profile']['pronouns'], ensure_ascii=False)
                  if isinstance(data_bible['mc_profile'].get('keyword_dictionary'), dict):
-                         data_bible['mc_profile']['keyword_dictionary'] = json.dumps(data_bible['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                          data_bible['mc_profile']['keyword_dictionary'] = json.dumps(data_bible['mc_profile']['keyword_dictionary'], ensure_ascii=False)
                  if isinstance(data_bible['mc_profile'].get('relations'), dict):
-                         data_bible['mc_profile']['relations'] = json.dumps(data_bible['mc_profile']['relations'], ensure_ascii=False)
+                          data_bible['mc_profile']['relations'] = json.dumps(data_bible['mc_profile']['relations'], ensure_ascii=False)
                  if isinstance(data_bible['mc_profile'].get('dialogue_samples'), dict):
-                         data_bible['mc_profile']['dialogue_samples'] = json.dumps(data_bible['mc_profile']['dialogue_samples'], ensure_ascii=False)
+                          data_bible['mc_profile']['dialogue_samples'] = json.dumps(data_bible['mc_profile']['dialogue_samples'], ensure_ascii=False)
             
             world_bible = WorldBible.model_validate(data_bible)
             print("World Bible Generated.")
@@ -1395,20 +1489,14 @@ class UltraEngine:
                  if 'dependency_graph' in ws_dict and isinstance(ws_dict['dependency_graph'], (dict, list)):
                      ws_dict['dependency_graph'] = json.dumps(ws_dict['dependency_graph'], ensure_ascii=False)
             
-            # Save
-            await self.repo.db.save_model(
-                """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (
-                    book_data['book_id'], 
-                    target_ep, 
-                    f"ANCHOR_EP_{target_ep}", 
-                    "(ANCHOR_STATE_ONLY)", 
-                    data.get('summary', ''), 
-                    '', 
-                    json.dumps(ws_dict, ensure_ascii=False), 
-                    datetime.datetime.now().isoformat()
-                )
+            # Save via Repo
+            await self.repo.save_chapter(
+                book_data['book_id'], 
+                target_ep, 
+                f"ANCHOR_EP_{target_ep}", 
+                "(ANCHOR_STATE_ONLY)", 
+                data.get('summary', ''), 
+                json.dumps(ws_dict, ensure_ascii=False)
             )
             print(f"Anchor for Ep {target_ep} Saved.")
             return True
@@ -1662,12 +1750,7 @@ class UltraEngine:
                             else:
                                 # 本当に何も生成できなかった場合（JSONエラー等でベストエフォートすらない場合）
                                 # DBにエラー情報を保存する (改善策1)
-                                await self.repo.db.save_model(
-                                    """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
-                                    VALUES (?,?,?,?,?,?,?,?)""",
-                                    (book_data['book_id'], ep_num, plot['title'], "（生成エラー：リトライ上限到達）", "エラー", '', json.dumps({}, ensure_ascii=False), datetime.datetime.now().isoformat())
-                                )
-                                # Note: self.repo.db.book_id was wrong. Changed to book_data['book_id'].
+                                await self.repo.save_error_chapter(book_data['book_id'], ep_num, plot['title'], "リトライ上限到達")
                                 
                                 full_chapters.append({
                                     "ep_num": ep_num,
@@ -1738,9 +1821,8 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     
     # 1. アンカー状態の先行生成 (DBになければ)
     for anchor in relevant_anchors:
-        # Check existence logic:
-        # idカラムがないため、book_idを選択する (Fixed previous error)
-        chk = await db.fetch_one("SELECT book_id FROM chapters WHERE book_id=? AND ep_num=?", (bid, anchor))
+        # Check existence logic via Repo
+        chk = await repo.check_chapter_exists(bid, anchor)
         if not chk:
              await engine.generate_anchor_state(full_data, anchor)
 
@@ -1760,9 +1842,9 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     print(f"Parallel Schedule: {ranges}")
     
     # 並列数を増やす (Parallel Execution)
-    semaphore = asyncio.Semaphore(3) # Increase concurrency for parallel blocks
+    semaphore = asyncio.Semaphore(5) # Increase concurrency for parallel blocks
 
-    tasks = [] # Added initialization
+    tasks = [] 
 
     for s, e in ranges:
         tasks.append(engine.write_episodes(
@@ -1902,7 +1984,7 @@ async def main():
     while True:
         print(f"\n=== Starting New Novel Generation Sequence at {datetime.datetime.now()} ===")
         try:
-            # Step 0: Trend Analysis (Static List Selection)
+            # Step 0: Trend Analysis (Dynamic from Google Search)
             seed = await engine.trend_analyst.get_dynamic_seed()
             
             # Step 1: 1-50話プロット + マーケティングアセット生成 (2-Stage)
@@ -1929,19 +2011,14 @@ async def main():
                     if 'dependency_graph' in ws_data and isinstance(ws_data['dependency_graph'], (dict, list)):
                         ws_data['dependency_graph'] = json.dumps(ws_data['dependency_graph'], ensure_ascii=False)
                     
-                    await engine.repo.db.save_model(
-                        """INSERT OR REPLACE INTO chapters (book_id, ep_num, title, content, summary, ai_insight, world_state, created_at)
-                           VALUES (?,?,?,?,?,?,?,?)""",
-                        (
-                            bid, 
-                            anchor.ep_num, # Use ep_num from anchor
-                            f"ANCHOR_EP_{anchor.ep_num}", 
-                            "(ANCHOR_STATE_ONLY)", 
-                            anchor.summary, 
-                            '', 
-                            json.dumps(ws_data, ensure_ascii=False), 
-                            datetime.datetime.now().isoformat()
-                        )
+                    # Use Repo for saving anchor chapters
+                    await engine.repo.save_chapter(
+                        bid,
+                        anchor.ep_num,
+                        f"ANCHOR_EP_{anchor.ep_num}",
+                        "(ANCHOR_STATE_ONLY)",
+                        anchor.summary,
+                        json.dumps(ws_data, ensure_ascii=False)
                     )
             
             print("Step 2: Execution - Writing Episodes (Ep 1-50)...")
@@ -1970,5 +2047,4 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
-
     asyncio.run(main())
