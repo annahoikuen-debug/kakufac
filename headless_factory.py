@@ -36,84 +36,84 @@ MODEL_MARKETING = "gemini-2.5-flash-lite"
 DB_FILE = "factory_run.db"
 
 # ==========================================
-# 文体定義 & サンプルデータ
+# 文体定義 & サンプルデータ (Few-Shot形式に変更)
 # ==========================================
 STYLE_DEFINITIONS = {
     "style_serious_fantasy": {
         "name": "無職転生風（理不尽な孫の手）",
-        "instruction": "【文体模倣: 伝記的・内省的】\n1. 地の文は「過去を回想する手記」のような落ち着いたトーンで記述せよ。\n2. 主人公の心理描写は、自身の弱さや欲望を隠さず、赤裸々に、しかしどこか客観的に描け。\n3. 世界観の説明は、五感（食事の味、土の匂い）を通じて生活感を持たせろ。\n4. 戦闘描写よりも、その結果としての「成長」や「後悔」に焦点を当てろ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「俺は、ただ生きたかっただけなのかもしれない。前世の記憶、あのゴミのような日々。だが、この世界なら……。土の匂いがする。泥にまみれた手が、妙にリアルだった。」\n\n【指針】\n上記のように、回想的かつ内省的なトーンで記述せよ。五感を通じた生活感を重視し、弱さを隠さない客観的な心理描写を行え。"
     },
     "style_psychological_loop": {
         "name": "リゼロ風（長月達平）",
-        "instruction": "【文体模倣: 感情爆発・心理極地】\n1. 絶望的な状況では、息継ぎのできないような長文と、畳み掛けるような短文を織り交ぜろ。\n2. 「――ッ！」や「ぁ、あ……」といった、言葉にならない悲鳴や呼吸音を多用せよ。\n3. 心理描写は、自己嫌悪と他者への執着を、粘着質に、執拗に繰り返せ。\n4. キャラクターのセリフは感情全開で、叫び、泣き、懇願するトーンを維持せよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「――ッ！　熱い、熱い熱い熱い！　喉が、焼けるように……ぁ、あ……。死にたくない、死にたくない死にたくない！　『愛してる』だと……？　ふざけるな、ふざけるなよぉぉぉ！」\n\n【指針】\n上記のように、呼吸音や絶叫を交え、切迫した心理を畳み掛けろ。自己嫌悪と他者への執着を、粘着質に繰り返せ。"
     },
     "style_military_rational": {
         "name": "幼女戦記風（カルロ・ゼン）",
-        "instruction": "【文体模倣: 合理的・論理的】\n1. 語彙は極めて硬質に。「認識」「最適化」「費用対効果」などの熟語を多用せよ。\n2. 地の文は、感情を排した「報告書」や「論文」のようなドライな文体を維持せよ。\n3. 神や運命を冷笑し、物理法則と経済合理性のみを信じる視点を貫け。\n4. カタカナ語（シカゴ学派、ドクトリン等）を漢字の中に混ぜ、インテリジェンスな雰囲気を醸成せよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「合理的判断に基づけば、この損耗率は許容範囲内だ。存在Xの悪意など、物理法則の前では無意味に等しい。当大隊は直ちに敵左翼を包囲、殲滅戦へ移行する。これは戦争ではない、駆除作業だ。」\n\n【指針】\n上記のように、感情を排した報告書的な文体を維持せよ。硬質な語彙（熟語、カタカナ語）を用い、徹底的な合理主義を貫け。"
     },
     "style_magic_engineering": {
         "name": "魔法科風（佐島勤）",
-        "instruction": "【文体模倣: 設定資料・解説的】\n1. アクションシーンであっても、「現象の物理的・魔法的なメカニズム」を詳細に解説せよ。\n2. 感情よりも「事象」を優先し、魔法の発動プロセス（CAD、起動式、事象改変）を論理的に記述せよ。\n3. インデントや改行を整然とし、説明文のような読みやすさを意識せよ。\n4. 主人公は常に冷静で、周囲の驚きをよそに淡々と最適解を実行させろ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「CADが起動シークエンスに入る。事象改変速度、0.05秒。術式解凍、展開。対象の座標情報を上書きし、分解魔法を発動。物理的な破壊ではなく、情報の消去。彼は表情一つ変えず、ただ『プロセス完了』と呟いた。」\n\n【指針】\n上記のように、魔法を技術体系として論理的に解説せよ。感情よりもメカニズムを優先し、整然とした説明文のような文体で記述せよ。"
     },
     "style_comedy_speed": {
         "name": "このすば風（暁なつめ）",
-        "instruction": "【文体模倣: 軽快・漫才】\n1. 地の文は最小限にし、セリフの掛け合い（テンポ）で物語を進行させよ。\n2. 主人公のツッコミは鋭く、かつ情けなく。「おい待て」「ふざけんな」等の口語体を地の文にも混ぜろ。\n3. シリアスな雰囲気は3行以上続けるな。必ずオチや台無しにする要素を入れろ。\n4. 擬音（カエルの鳴き声、爆裂音）をコミカルに表現せよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「おい待て、それを撃つな！　バカかお前は！」「ふっ、我が爆裂魔法の餌食になりたいようね……」「なりません！　カエルだぞ相手は！　ヌルヌルしてんだぞ！」\n\n【指針】\n上記のように、地の文を最小限にし、テンポの良い会話劇で進行せよ。シリアスは即座にギャグで台無しにし、鋭いツッコミを入れろ。"
     },
     "style_overlord": {
         "name": "オバロ風（丸山くがね）",
-        "instruction": "【文体模倣: 荘厳・アンジャッシュ】\n1. 主人公の独白（小心者）と、周囲からの視点（絶対的な支配者）のギャップを強調せよ。\n2. 配下の描写は、宗教的なまでの崇拝と、過剰な敬語を用いて記述せよ。\n3. 戦闘は「圧倒的な蹂躙」として描き、相手の絶望を詳細に描写せよ。\n4. 組織運営や政治的な駆け引きの描写を重厚に差し込め。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「流石はアインズ様……！　その深淵なる御考え、このデミウルゴス、感服いたしました」「（えっ、何それ……適当に言っただけなんだけど）」\n\n【指針】\n上記のように、絶対支配者としての外面と、小心者の内面のギャップを描け。配下の過剰な崇拝と、残酷な蹂躙描写を重厚に記述せよ。"
     },
     "style_slime_nation": {
         "name": "転スラ風（伏瀬）",
-        "instruction": "【文体模倣: 会議・スキルログ】\n1. 問題解決は「スキルの獲得」や「進化」によって行われるプロセスを明確にせよ（《告。〜を獲得しました》）。\n2. 深刻になりすぎず、「なんとかなるだろう」という楽観的なトーンを維持せよ。\n3. 会議シーンでは、複数の部下がそれぞれの専門分野から意見を述べる形式を多用せよ。\n4. 主人公は親しみやすく、部下からは過剰に愛されている状況を描け。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「《告。個体名リムルがスキル『暴食之王』を獲得しました》　……なんか凄そうなの手に入れたな。まあいいか、これで皆を守れるなら。会議を始めよう。『主君、この件ですが――』」\n\n【指針】\n上記のように、スキル獲得ログを明示し、楽観的なトーンで進行せよ。会議シーンを多用し、部下からの全肯定と親しみやすさを描け。"
     },
     "style_spider_chaos": {
         "name": "蜘蛛ですが風（馬場翁）",
-        "instruction": "【文体模倣: 意識流・独り言】\n1. 主人公の思考を「〜じゃね？」「ナイワ〜」といった軽い口語体で、絶え間なく垂れ流せ。\n2. 状況分析はゲーム的・数値的だが、それを茶化すようなノリで記述せよ。\n3. 視点変更（Sサイド、Kサイド等）を効果的に使い、主人公の客観的な恐ろしさを強調せよ。\n4. 鑑定結果やスキル説明を本文中に頻繁にインサートせよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「ナイワ〜。マジでないわ〜。このステータスで勝てと？　無理ゲーじゃん！　……鑑定先生、出番ですよ。ふむふむ、弱点は火、と。なら燃やすしかなくね？」\n\n【指針】\n上記のように、女子高生風の軽い口語体での脳内独り言を垂れ流せ。数値的分析を茶化しながら行い、意識の流れをそのまま文章化せよ。"
     },
     "style_vrmmo_introspection": {
         "name": "SAO風（川原礫）",
-        "instruction": "【文体模倣: 仮想現実・内省】\n1. UI、HPバー、ポリゴン破砕エフェクトなどの「ゲーム的視覚情報」を、五感の一部として描写せよ。\n2. 戦闘中は「思考の加速」を描き、コンマ数秒の間に戦術を組み立てる思考プロセスを挿入せよ。\n3. ヒロインや相棒との精神的な繋がりを、少しセンチメンタルな筆致で描け。\n4. 「黒い剣士」「閃光」のような二つ名を効果的に使え。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「右手の剣が青い光跡を描く。システムアシストではない、俺自身の反射神経。コンマ1秒の思考加速。あいつを守る、その想いだけで、俺は仮想世界の物理法則を超越した。」\n\n【指針】\n上記のように、UIやエフェクト等のゲーム的情報を五感として描け。戦闘中の高速思考と、センチメンタルな決意を交錯させよ。"
     },
     "style_bookworm_daily": {
         "name": "本好き風（香月美夜）",
-        "instruction": "【文体模倣: 生活密着・文化的】\n1. 食事、掃除、服作りなどの「生活の細部」を、手順を追って丁寧に描写せよ。\n2. 貴族社会のしきたりや、平民との常識のギャップを、主人公の失敗を通じて描け。\n3. 家族や周囲の人々との温かい（あるいは厳しい）交流を物語の主軸に置け。\n4. 派手な魔法よりも、知識と工夫によるささやかな成功を喜ぶ描写をせよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「今日は紙漉きの日です！　繊維を煮込んで、ドロドロにして……うぅ、臭い。でも、本のためなら我慢です。ルッツ、そこもっと強く絞って！」「はいはい、わかったよマイン」\n\n【指針】\n上記のように、生活の細部や作業工程を丁寧に描写せよ。周囲との温かい交流と、本（目的）への異常な執着を対比させよ。"
     },
     "style_action_heroic": {
         "name": "ダンまち風（大森藤ノ）",
-        "instruction": "【文体模倣: 熱血・神話】\n1. 戦闘のクライマックスでは、情熱的で叙情的な表現（「英雄への階梯」「魂の輝き」）を使用せよ。\n2. オノマトペ（『ズドン！』『ギャアアア！』）を効果的に使い、迫力を出せ。\n3. 主人公が極限状態で立ち上がる様を、周囲の観衆の視点も交えてドラマチックに描け。\n4. 憧れや純粋な想いを原動力とする、直球の感情描写を行え。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「――舞え！　『ファイアボルト』！！　ドゴォォォン！！　爆炎を突き破り、僕は走る。憧れに、届くために。英雄になりたいと、魂が叫んでいるんだ！」\n\n【指針】\n上記のように、熱血で叙情的な表現と、迫力あるオノマトペを多用せよ。純粋な憧れを原動力とした、直球の英雄譚を描け。"
     },
     "style_otome_misunderstand": {
         "name": "はめふら風（山口悟）",
-        "instruction": "【文体模倣: 脳内会議・鈍感】\n1. 主人公の脳内で、複数の人格（議長、弱気、強気など）が会議をする描写を入れろ。\n2. 破滅フラグを回避するために必死な行動が、周囲には「慈愛」として勘違いされる様子を描け。\n3. 恋愛感情には徹底的に鈍感で、全てを「友情」や「生存戦略」として解釈させろ。\n4. 雰囲気は明るく、ドロドロした展開もコミカルに消化せよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「（よし、土いじりで足腰を鍛えて、追放エンドに備えるのよ！）『カタリナ様、なんて慈悲深い……お庭の手入れまでご自身で……』　あれ？　また何か勘違いされてる？」\n\n【指針】\n上記のように、脳内会議と行動のズレによる勘違いを描け。破滅回避のための奇行が、周囲には善行として解釈される様をコミカルに記述せよ。"
     },
     "style_dark_hero": {
         "name": "ありふれ風（白米良）",
-        "instruction": "【文体模倣: 徹底的暴力・デレ】\n1. 敵に対しては一切の慈悲を見せず、残酷かつ効率的に排除する描写を行え。\n2. 「――邪魔をするなら殺すだけだ」といった、断定的な強い言葉を使わせろ。\n3. 一転して、ヒロインたちとの会話は甘く、イチャイチャした雰囲気を隠すな。\n4. 戦闘力やステータスのインフレを、派手な演出とともに肯定的に描け。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「……殺すぞ？　俺の邪魔をするなら、神だろうが殺す。それだけだ。ユエ、行くぞ」「……ん。ハジメ、大好き」\n\n【指針】\n上記のように、敵には容赦ない断定的な暴力性を、身内には甘いデレを見せろ。厨二病的なカッコよさとステータス無双を肯定的に描け。"
     },
     "style_average_gag": {
         "name": "平均値風（FUNA）",
-        "instruction": "【文体模倣: メタ・パロディ】\n1. 「日本の古いテレビネタ」や「ネットミーム」を、異世界人が理解できない形でボケとして使え。\n2. トラブルは主人公のチート能力であっさり解決し、その後の「やったった感」を楽しげに描け。\n3. シリアスな空気になりかけたら、すぐにギャグで茶化して雰囲気をリセットせよ。\n4. 「ま、いっか！」というポジティブな諦観で物語を進めろ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「それなんてエロゲ？　……って、通じないか異世界だもんね！　『古き契約に従い……』って長ーい！　ドーン！　はい、終了！　あー、またやっちゃった？」\n\n【指針】\n上記のように、パロディやメタ発言をボケとして入れろ。チートで問題を瞬殺し、「ま、いっか」と軽く流すポジティブな諦観で進めろ。"
     },
     "style_romcom_cynical": {
         "name": "俺ガイル風（渡航）",
-        "instruction": "【文体模倣: 屈折・哲学的】\n1. 主人公の独白は、社会や青春に対する皮肉（ひねくれ）から入り、独自の理屈を展開せよ。\n2. 会話文は、言葉の裏にある「本音」や「空気」を探り合うような、緊張感のあるものにせよ。\n3. 比喩表現を多用し、抽象的な概念（「本物」「共依存」）について議論させろ。\n4. ラストは明確な答えを出さず、苦味を含んだ余韻を残せ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「青春とは嘘であり、悪だ。彼らは失敗すら美談にする。だが、俺は騙されない。その笑顔の裏にある欺瞞を、共依存という名のシステムを、俺だけは知っている。」\n\n【指針】\n上記のように、ひねくれた視点からの哲学的・社会学的考察から入れ。会話の裏にある本音を探り合う、緊張感と苦味のある青春を描け。"
     },
     "style_chat_log": {
         "name": "掲示板・配信回風（一般的Web様式）",
-        "instruction": "【文体模倣: 掲示板・レス】\n1. 文章ではなく、「名前：名無しさん」「>>1 おつ」のような掲示板形式で進行せよ。\n2. ネットスラング（草、ｗ、～杉、神）を多用し、独特のノリとスピード感を出せ。\n3. 主人公の行動に対する「視聴者の掌返し（批判→絶賛）」をリアルタイムで描け。\n4. 考察班、アンチ、信者など、複数の役割を持ったレスを混在させろ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「\n234：名無しさん\n　>>1 おつ\n　え、今の魔法ヤバすぎワロタｗｗ\n235：名無しさん\n　これは神回\n　主人公強すぎだろ、修正はよ\n」\n\n【指針】\n上記のように、掲示板形式（レス番、名前、本文）で記述せよ。ネットスラングを多用し、掌返しやライブ感を演出せよ。"
     },
     "style_villainess_elegant": {
         "name": "悪役令嬢・宮廷風",
-        "instruction": "【文体模倣: 優雅・耽美】\n1. 言葉遣いは「〜ですわ」「〜あそばせ」といった極めて丁寧な貴族言葉（役割語）を使用せよ。\n2. ドレスの素材、紅茶の香り、宝石の輝きなど、物理的な「美しさ」を詳細に描写せよ。\n3. 敵対者との会話は、笑顔の裏に侮蔑を込めるような、高度な皮肉の応酬にせよ。\n4. 恋愛感情は、激しさよりも「胸の痛み」「頬の熱」といった慎み深い表現を用いろ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「あら、ごきげんよう。随分と安っぽいドレスですこと。……ふふ、冗談ですわ。ただ、わたくしの視界に入らないでいただけます？　汚らわしいので」\n\n【指針】\n上記のように、優雅な敬語（お嬢様言葉）で毒を吐け。ドレスや宝石の美しさを描写しつつ、高度な皮肉の応酬を行え。"
     },
     "style_slow_life": {
         "name": "スローライフ風（一般的Web様式）",
-        "instruction": "【文体模倣: 牧歌的・ストレスフリー】\n1. トラブルや敵対者は登場させず（あるいは即和解し）、平穏な日常を崩すな。\n2. 収穫した野菜の瑞々しさや、作った料理の美味しさを、擬音を交えて幸せそうに描け。\n3. もふもふした動物（聖獣）との触れ合いを、癒やしの要素として重点的に描写せよ。\n4. 「こういうのでいいんだよ」という、満ち足りた心情を強調せよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「採れたてのトマト、真っ赤でツヤツヤだ。ガブリ。……うん、甘い！　太陽の味がする。フェンリルも食べるか？　『ワフッ！』　よしよし、平和だなぁ」\n\n【指針】\n上記のように、ストレスフリーな日常を描け。食事の美味しさや動物との触れ合いを重視し、「これでいい」という充足感を強調せよ。"
     },
     "style_web_standard": {
         "name": "なろうテンプレ標準",
-        "instruction": "【文体模倣: Web標準・高速】\n1. 1文は短く、難しい漢字は避けろ。改行を頻繁に入れ、スマホでの読みやすさを最優先せよ。\n2. 状況説明は省き、「鑑定」や「ステータス画面」の表示で情報を補完せよ。\n3. 主人公への称賛（「さすがです！」「ありえない！」）を周囲に語らせろ。\n4. テンポよく物語を進め、停滞する内面描写はカットせよ。"
+        "instruction": "【文体サンプル（Few-Shot）】\n例：「鑑定！　……うわ、ステータスがカンストしてる。これならドラゴンも余裕か？　『ギャオオオ！』　ズドン。一撃で倒してしまった。……また俺、何かやっちゃいました？」\n\n【指針】\n上記のように、短文と改行を多用し、スマホでの読みやすさを最優先せよ。主人公への称賛とチート能力の結果を淡々と、かつ爽快に描け。"
     }
 }
 
@@ -205,21 +205,18 @@ class NovelStructure(BaseModel):
     plots: List[PlotEpisode]
     marketing_assets: MarketingAssets
 
-class Phase2Structure(BaseModel):
-    plots: List[PlotEpisode]
-
 class WorldState(BaseModel):
-    # 修正: settings と dependency_graph にデフォルト値を設定し、AIが省略してもエラーにならないようにする
-    settings: str = Field(default="{}", description="JSON string representing all world settings (Merged Immutable/Mutable)")
-    revealed: List[str] = Field(default_factory=list, description="読者に開示済みの設定リスト")
-    revealed_mysteries: List[str] = Field(default_factory=list, description="解明済みの伏線リスト")
-    pending_foreshadowing: List[str] = Field(default_factory=list, description="未回収の伏線リスト")
-    dependency_graph: str = Field(default="{}", description="JSON mapping of foreshadowing ID to target ep_num for resolution")
+    # 指令に基づき、settingsのDiff更新を廃止。new_facts (Facts List) 方式に変更。
+    # LLMはsettings全体を返すのではなく、新事実のリストのみを返す。
+    new_facts: List[str] = Field(default_factory=list, description="本エピソードで新たに判明した事実・設定のリスト (Append Only)")
+    revealed_mysteries: Optional[List[str]] = Field(default=None, description="新たに解明された伏線リスト (Append Only)")
+    pending_foreshadowing: Optional[List[str]] = Field(default=None, description="新たに追加された伏線リスト (Append Only)")
+    dependency_graph: Optional[str] = Field(default=None, description="JSON mapping of foreshadowing ID to target ep_num (Diff only)")
 
 class EpisodeResponse(BaseModel):
     content: str = Field(..., description="エピソード本文 (1500-2000文字)")
     summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
-    next_world_state: WorldState = Field(..., description="この話の結果更新された世界状態")
+    next_world_state: WorldState = Field(default_factory=WorldState, description="この話の結果更新された世界状態 (Fact Append)")
 
 class TrendSeed(BaseModel):
     genre: str
@@ -230,72 +227,10 @@ class TrendSeed(BaseModel):
     style: str
 
 # ==========================================
-# Prompt Manager
+# Prompt Manager (ContextBuilder実装)
 # ==========================================
 class PromptManager:
     TEMPLATES = {
-        "system_rules": """# SYSTEM RULES: STRICT ADHERENCE REQUIRED
-【キャラクター・ロック（絶対遵守）】
-以下のキャラクター定義から1ミリでも逸脱した場合、それは重大なエラーとみなされる。
-1. **主人公名**: {mc_name}
-2. **基本口調**: 「{mc_tone}」
-3. **一人称・二人称**: {pronouns}
-   ※「俺」設定なのに「僕」や「私」を使うことを固く禁ずる。
-4. **関係性の固定**:
-   {relations}
-   ※上記の関係性（好意、敵対、恐怖など）に基づく態度を常に維持せよ。
-5. **口調サンプル**:
-   {mc_dialogue_samples}
-   ※このサンプルのニュアンスを全ての会話で再現せよ。
-
-【知識の遮断 (Knowledge Cutoff)】
-あなたは物語の書き手だが、**主人公の知識レベル**を超越してはならない。
-- Bibleに書かれている「世界の真実」や「ラスボスの正体」を、物語上で開示されるまで地の文やセリフに出すことを固く禁ずる。
-- 全ては「主人公の視点」から見た限定的な情報として描写せよ。
-
-【日本語作法・厳格なルール】
-1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。
-2. **感嘆符・疑問符**: 「！」や「？」の直後には必ず全角スペースを1つ空けよ（文末の閉じ括弧直前を除く）。
-3. **改行の演出**: 場面転換や衝撃的な瞬間の前には、空白行を挟んで「溜め」を作れ。
-
-【文体指定: {style_name}】
-{style_instruction}
---------------------------------------------------
-""",
-        "writing_rules": """
-【執筆プロトコル: 一括生成モード】
-以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
-
-1. **情報開示制限（Spoiler Guard）**:
-   - **「Detailed Blueprint」に書かれていない新キャラ、新設定、新展開を勝手に創作することを固く禁ずる。**
-   - AIの「話を盛りたい」という欲求を抑え、設計図にあるイベントだけを忠実に描写せよ。
-   - ラスボスや世界の謎など、まだ早い段階のネタバレを絶対に記述するな。
-
-2. **ブリッジ・コンテキスト（前話との接続）**:
-   - **直前のシーンから1秒も時間を飛ばさずに書き始めよ。**
-   - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。
-
-3. **出力文字数**:
-   - 必ず **1,500文字〜2,000文字** の範囲に収めること。
-
-4. **構成（起承転結）**:
-   - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。
-
-5. **【最重要】カクヨム・メソッド（リアクション）**:
-    - 主人公の行動に対する「周囲の反応」を必ず描写せよ。
-""",
-        "cliffhanger_protocol": """
-【究極の「引き」生成ロジック: Cliffhanger Protocol】
-各エピソードの結末は、文脈に応じて最も効果的な「引き」を自律的に判断し、**「読者が次を読まずにいられない状態」**を強制的に作り出せ。
-
-1. **逆算式・ゴール地点固定**:
-   - 本文執筆前に、その話の**「最悪、あるいは最高の結末（最後の一行）」**を確定せよ。
-   - 結末をぼかさないこと。予定調和な終わり方をしないこと。
-
-2. **テンション・カタストロフィ**:
-   - 絶体絶命の瞬間、あるいは秘密が暴かれる**「直前」で物語を強制終了**せよ。
-   - 読者が「救い」や「納得」を得る記述を一切排除せよ。安心させず、解決しきらないこと。
-""",
         "trend_analysis_prompt": """
 あなたはカクヨム市場分析のプロフェッショナルです。
 「カクヨムの週間ランキング上位100作品」の傾向を模倣し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
@@ -314,54 +249,18 @@ JSON形式で以下のキーを含めて出力せよ:
 - hook_text: 読者を惹きつける「一行あらすじ」
 - style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
 """,
-        "qa_evaluation_prompt": """
-あなたはカクヨムランキング1位を目指すための総合検閲エンジンです。
-以下のエピソード本文と「Bible（世界設定）」を照合し、**一回の推論で**品質レポートを作成せよ。
-
-【Bible Settings】
-{settings}
-
-【Episode Content】
-{content}
-
-以下の項目を厳しく評価し、JSONで出力せよ:
-1. **整合性(Consistency)**: 設定矛盾はないか？ (0-100)
-   - 特に「まだ開示されていない情報（ネタバレ）」が漏れていないか厳しくチェックせよ。
-   - プロットにない新キャラや設定が勝手に追加されていたら0点にせよ。
-2. **クリフハンガー(Cliffhanger)**: 続きを読ませる引きの強さ (0-100)。80点未満はリライト対象。
-3. **カクヨム訴求力(Appeal)**: (0-100)
-    - 減点対象: 「倒した」「勝った」という事後報告のみの描写 (-20点)
-    - 加点対象: 敵の不快な挑発からの、圧倒的なオーバーキル (+30点)
-    - 加点対象: 周囲の観客による「解説」や「驚き」のリアクション (+20点)
-    - 加点対象: ステータス画面やスキルログによる視覚的な成果表示 (+10点)
-4. **ストレス/カタルシス**: 読者が感じるストレス度とカタルシス度を数値化せよ。
-5. **書き換え提案(Suggested Diff)**: スコアが低い場合、または改善の余地がある場合、具体的にどの文章をどう書き換えるべきか、修正済みのテキスト案（差分）を提示せよ。
-
-JSON出力形式:
-{{
-    "is_consistent": true/false,
-    "fatal_errors": ["..."],
-    "consistency_score": 80,
-    "cliffhanger_score": 80,
-    "kakuyomu_appeal_score": 70,
-    "stress_level": 20,
-    "catharsis_level": 80,
-    "improvement_advice": "具体的な改善指示...",
-    "suggested_diff": "【修正案】\\n原文「...」\\n↓\\n修正「...」\\n理由: ..."
-}}
-""",
         "plot_phase1": """
 あなたはWeb小説の神級プロットアーキテクトです。
-ジャンル「{genre}」で、カクヨム読者を熱狂させる**全50話完結の物語構造**を作成してください。
+ジャンル「{genre}」で、カクヨム読者を熱狂させる**全50話完結の物語構造**を一括で作成してください。
 
 【ユーザー指定の絶対条件】
 1. 文体: 「{style_name}」
 2. 主人公: 性格{mc_personality}, 口調「{mc_tone}」
 3. テーマ: {keywords}
 
-【Task: Phase 1 (Ep 1-25)】
-作品設定、前半パートである**第1話〜第25話**の詳細プロット、マーケティングアセットを作成せよ。
-前半のクライマックス（第25話）に向けて、テンションを高めていくこと。
+【Task: Full Series Plot (Ep 1-50)】
+作品設定、および**第1話〜第50話（最終話）**の詳細プロット、マーケティングアセットを一度に作成せよ。
+物語のクライマックスに向けて、テンションを高めていくこと。
 **重要: 各エピソードは「Resolution（解決）」ではなく「Next Hook（次への引き）」で終わらせる構成にせよ。**
 **重要: detailed_blueprint には、各話500文字以上で、具体的なセリフ、アクション、情景、そして前話からの滑らかな接続（ブリッジ）を詳細に記述せよ。**
 **重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
@@ -369,43 +268,29 @@ JSON出力形式:
 Output strictly in JSON format following this schema:
 {schema}
 """,
-        "plot_phase2": """
-あなたはWeb小説の神級プロットアーキテクトです。
-現在、第{current_ep}話まで執筆が完了しました。
-最新の世界状態（Bible）と物語の展開に基づき、**第{current_ep_plus_1}話〜第50話（最終話）**のプロットを再構成してください。
+        # テンプレートから断片的なルール変数を削除し、build_writing_promptで動的に構築する形に変更
+        "episode_writer_core": """
+[SYSTEM]
+OUTPUT STRICTLY IN JSON FORMAT.
 
-【Current Bible State】
-{bible_context}
+【ROLE: High-Performance Novelist ({current_model})】
+以下の詳細な設計図（Blueprint）に基づき、**Chain of Thought (CoT)** プロセスを用いて最高品質の**第{ep_num}話**を執筆せよ。
 
-【Recent Story Flow】
-{history_summ}
+【STEP 1: DRAFTING】
+- Blueprintに従い、本文のドラフトを作成する。
+- 文体指示、キャラクター設定、禁止事項を遵守する。
 
-【Task】
-後半の展開を劇的に、かつ整合性が取れるように作成せよ。
-**重要: 各エピソードは「Next Hook」で終わらせること。**
-**重要: detailed_blueprint には、各話500文字以上で、具体的なセリフ、アクション、情景、そして前話からの滑らかな接続（ブリッジ）を詳細に記述せよ。**
-**重要: Scenesフィールドは SceneDetail オブジェクトのリストとして定義すること。**
+【STEP 2: SELF-REFLECTION & QA】
+- 作成したドラフトを自己評価せよ。
+  - ストレス度は適切か？ カタルシスは十分か？
+  - 設定矛盾（Bibleとの不整合）はないか？
+  - 「引き」は強力か？
+- 評価に基づき、ドラフトを修正・強化する。
 
-Output strictly in JSON format following this schema:
-{schema}
-""",
-        "episode_writer": """
-{system_rules}
-{entity_context}
-{writing_rules}
-{cliffhanger_protocol}
-
-【Pacing Instruction】
-{pacing_instruction}
-
-【Role: Novelist ({current_model})】
-以下の詳細な設計図（Blueprint）に基づき、**第{ep_num}話**の本文を一括執筆し、結果をJSON形式で出力せよ。
-1. `content`: 本文 (1500-2000文字)
-2. `summary`: 次話へ繋ぐための要約
-3. `next_world_state`: この話で確定した設定・変化した状態・解決した謎・新たな伏線を反映した最新のBible状態
+【STEP 3: FINAL JSON OUTPUT】
+- 修正済みの最終原稿のみをJSON形式で出力せよ。
 
 【ネタバレ注意：まだ書いてはいけない裏設定リスト】
-以下の伏線は将来のためのものであり、本エピソードで触れることは固く禁ずる。プロットに指示がない限り、存在すら匂わせるな。
 {pending_foreshadowing}
 
 {must_resolve_instruction}
@@ -414,38 +299,28 @@ Output strictly in JSON format following this schema:
 以下の文脈から1秒も時間を飛ばさず、直結するように書き始めよ。
 {prev_context_text}
 
-【プロット遵守の絶対原則 (Strict Blueprint Adherence)】
-以下の「Detailed Blueprint」に含まれないイベント、会話、キャラの登場はすべてエラーである。
-AIの創作で話を盛るな。設計図を忠実に文章化することだけに集中せよ。
-
 【今回の設計図 (Detailed Blueprint)】
 {episode_plot_text}
+※もしDetailed Blueprintが空の場合は、以下の標準構成に従え：
+[導入] 状況の提示と前話からの接続
+[展開] トラブル発生またはイベントの進行
+[結末] 衝撃的な事実の発覚または絶体絶命のピンチ（次話への引き）
 
 【World Context (Bible v{expected_version})】
 {bible_context}
 
-【Rewrite Instruction (Chain of Thought)】
-{rewrite_instruction}
-""",
-        "rewrite_critique": """
-【重要: 執筆やり直し命令】
-先ほどの出力は品質基準を満たさなかったため、却下されました。
-以下の「却下された原稿」と「品質保証レポート（Critique）」を熟読し、同じ過ちを犯さないように論理的に思考した上で、最高品質のエピソードを再執筆せよ。
-
-[Rejected Draft]:
-{rejected_content}
-
-[QA Critique]:
-- Improvement Advice: {improvement_advice}
-- Suggested Diff: {suggested_diff}
-
-上記の指摘を反映し、特に「引きの強さ」と「カクヨム訴求力」を飛躍的に高めた原稿を作成せよ。
-
-【カクヨム訴求力強化指令】
-以下のテクニックを使って「カクヨム訴求力」を強制的に高めよ:
-1. **敵のヘイトを倍増させよ**: 敵のセリフをより傲慢に、理不尽に書き換えろ。
-2. **過剰な演出**: 魔法やスキルの威力描写を、擬音（ドゴォォン！）を交えて3倍に誇張せよ。
-3. **賞賛のシャワー**: 周囲のキャラに、主人公を過剰なほど褒め称えさせろ。
+OUTPUT STRICTLY IN JSON FORMAT.
+Schema:
+{{
+  "content": "修正済みの最終エピソード本文 (1500-2000文字)",
+  "summary": "次話への文脈用要約 (300文字)",
+  "next_world_state": {{
+    "new_facts": ["本エピソードで確定した新しい事実や設定のリスト (Append Only)"],
+    "revealed_mysteries": ["新しく解明された謎"],
+    "pending_foreshadowing": ["新しく追加された伏線"],
+    "dependency_graph": "更新された依存グラフJSON文字列"
+  }}
+}}
 """
     }
 
@@ -454,12 +329,136 @@ AIの創作で話を盛るな。設計図を忠実に文章化することだけ
             raise ValueError(f"Template '{name}' not found.")
         return self.TEMPLATES[name].format(**kwargs)
 
+    def apply_style(self, style_key: str) -> str:
+        """指定されたスタイルのFew-Shot指示文を取得する"""
+        style_def = STYLE_DEFINITIONS.get(style_key, STYLE_DEFINITIONS["style_web_standard"])
+        return f"【Target Style: {style_def['name']}】\n{style_def['instruction']}"
+
+    def build_writing_prompt(self, 
+                             mc_name, mc_tone, pronouns, relations, mc_dialogue_samples, # System Rules params
+                             style_instruction, entity_context, # Context params
+                             pacing_instruction, pacing_graph,
+                             prev_last_sentence=None, # 強制接続用
+                             **kwargs # Template params
+                             ) -> str:
+        """
+        断片的なルールを統合し、最適な順序（Recency Bias考慮）でプロンプトを構築する ContextBuilder。
+        """
+        
+        # 1. System Rules (Hard strict rules)
+        system_rules = f"""# SYSTEM RULES: STRICT ADHERENCE REQUIRED
+【キャラクター・ロック（絶対遵守）】
+以下のキャラクター定義から1ミリでも逸脱してはならない。
+1. **主人公名**: {mc_name}
+2. **基本口調**: 「{mc_tone}」
+3. **一人称・二人称**: {pronouns}
+   ※「俺」設定なら必ず「俺」を使え。
+4. **関係性の固定**:
+   {relations}
+   ※上記の関係性（好意、敵対、恐怖など）に基づく態度を維持せよ。
+5. **口調サンプル**:
+   {mc_dialogue_samples}
+   ※このサンプルのニュアンスを全ての会話で再現せよ。
+
+【知識の遮断 (Knowledge Cutoff)】
+あなたは物語の書き手だが、**主人公の知識レベル**を超越してはならない。
+- Bibleに書かれている「世界の真実」や「ラスボスの正体」を、物語上で開示されるまで地の文やセリフに出すな。
+- 全ては「主人公の視点」から見た限定的な情報として描写せよ。
+
+【日本語作法・厳格なルール】
+1. **三点リーダー**: 「……」と必ず2個（偶数個）セットで記述せよ。
+2. **感嘆符・疑問符**: 「！」や「？」の直後には必ず全角スペースを1つ空けよ（文末の閉じ括弧直前を除く）。
+3. **改行の演出**: 場面転換や衝撃的な瞬間の前には、空白行を挟んで「溜め」を作れ。
+
+【執筆プロトコル: 一括生成モード】
+以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
+
+1. **情報開示制限（Spoiler Guard）**:
+   - **「Detailed Blueprint」に書かれていない新キャラ、新設定、新展開を勝手に創作することを固く禁ずる。**
+   - 設計図にあるイベントだけを忠実に描写せよ。
+
+2. **ブリッジ・コンテキスト（前話との接続）**:
+   - **直前のシーンから1秒も時間を飛ばさずに書き始めよ。**
+   - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。
+
+3. **出力文字数**:
+   - 必ず **1,500文字〜2,000文字** の範囲に収めること。
+
+4. **構成（起承転結）**:
+   - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。
+
+5. **【最重要】カクヨム・メソッド（リアクション）**:
+    - 主人公の行動に対する「周囲の反応」を必ず描写せよ。
+
+【究極の「引き」生成ロジック: Cliffhanger Protocol】
+各エピソードの結末は、文脈に応じて最も効果的な「引き」を自律的に判断し、**「読者が次を読まずにいられない状態」**を強制的に作り出せ。
+"""
+
+        # 強制接続ルールの追加
+        if prev_last_sentence:
+            system_rules = f"""
+【絶対ルール：書き出しの指定】
+書き出しのルール：以下の文から書き始めよ『{prev_last_sentence}』
+※この文を冒頭に置くことで、前話からの連続性を物理的に維持せよ。
+
+{system_rules}"""
+
+        # 2. Core Template Interpolation
+        base_prompt = self.get("episode_writer_core", **kwargs)
+
+        # 3. Assemble Final Prompt with Recency Bias (Style & Entity at the end)
+        # 構造: [System Rules] -> [Pacing Info] -> [Base Prompt (Blueprint/Context)] -> [Entity/Style Instructions (Recency)]
+        
+        final_prompt = f"""
+{system_rules}
+
+【PACING & EMOTION GRAPH (Current Flow)】
+{pacing_graph}
+Instruction: {pacing_instruction}
+
+{base_prompt}
+
+【IMPORTANT: STYLE & CHARACTER ENFORCEMENT】
+Gemmaモデルは以下の指示を最優先で実行せよ。
+{entity_context}
+
+{style_instruction}
+"""
+        return final_prompt
+
 # ==========================================
 # Formatter Class (Regex-based)
 # ==========================================
 class TextFormatter:
     def __init__(self, engine):
         self.engine = engine # 互換性のために保持するが使用しない
+
+    def force_connect(self, text, prev_last_sentence):
+        """前話の終わりの一文と重複している場合、それを削除して接続を滑らかにする"""
+        if not text or not prev_last_sentence:
+            return text
+        
+        clean_text = text.strip()
+        clean_prev = prev_last_sentence.strip()
+        
+        # もし生成されたテキストが前話のラスト一文から始まっていたら、その部分を削除する
+        # （読者には「前話の終わり」→「次話の始まり」と連続して表示されるため、重複を避ける）
+        if clean_text.startswith(clean_prev):
+            return clean_text[len(clean_prev):].strip()
+        
+        return clean_text
+
+    def _remove_chat_artifacts(self, text):
+        """チャット特有のノイズ（Artifacts）を除去する"""
+        # 冒頭のノイズ: "はい、承知しました" "以下が小説です" "Here is the story" 等
+        text = re.sub(r'^(はい|承知|了解|以下|これ|Here|Sure|Certainly|Okay).*?(\n|$)', '', text, flags=re.IGNORECASE | re.MULTILINE).strip()
+        # Markdownの冒頭ブロック除去
+        text = re.sub(r'^\*\*.*?\*\*\n', '', text).strip()
+        
+        # 末尾のノイズ: "以上です" "いかがでしたか" "End of episode" 等
+        text = re.sub(r'(\n|^)(以上|End|Hope|Do you|いかが|書き終).*?$', '', text, flags=re.IGNORECASE | re.MULTILINE).strip()
+        
+        return text
 
     def _clean_kakuyomu_style(self, text):
         """カクヨム向け物理整形: 強制空行挿入"""
@@ -497,6 +496,9 @@ class TextFormatter:
     async def format(self, text, k_dict=None):
         if not text: return ""
         
+        # 0. チャットアーティファクトの除去 (新規追加)
+        text = self._remove_chat_artifacts(text)
+
         # 1. 三点リーダーの正規化 (…1つや...を……に)
         text = re.sub(r'…{1,}', '……', text)
         text = re.sub(r'\.{2,}', '……', text)
@@ -558,7 +560,6 @@ class DatabaseManager:
                 );
             ''')
         # plotテーブル更新: stress, catharsis追加, detailed_blueprint追加
-        # Note: existing DBs will need migration or recreate. This assumes fresh start or handles error.
         try:
             await self.execute('ALTER TABLE plot ADD COLUMN detailed_blueprint TEXT')
         except: pass
@@ -677,12 +678,13 @@ class DatabaseManager:
 db = DatabaseManager(DB_FILE)
 
 # ==========================================
-# Repository Pattern
+# Repository Pattern (指令により強化)
 # ==========================================
 class NovelRepository:
     def __init__(self, db_manager):
         self.db = db_manager
 
+    # --- Create / Write ---
     async def create_novel(self, data, genre, style_dna_str):
         if isinstance(data, dict): data_dict = data
         else: data_dict = data.model_dump()
@@ -757,6 +759,33 @@ class NovelRepository:
             saved_plots.append(p)
         return saved_plots
 
+    # --- Read / Fetch Methods (Moved from Task Functions) ---
+    async def get_book(self, book_id: int):
+        return await self.db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
+
+    async def get_plots(self, book_id: int):
+        return await self.db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
+
+    async def get_characters(self, book_id: int):
+        return await self.db.fetch_all("SELECT * FROM characters WHERE book_id=?", (book_id,))
+    
+    async def get_main_character(self, book_id: int):
+        return await self.db.fetch_one("SELECT * FROM characters WHERE book_id=? AND role='主人公'", (book_id,))
+
+    async def get_chapters(self, book_id: int):
+        return await self.db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
+
+    async def get_latest_chapter(self, book_id: int, ep_num: int):
+        """指定エピソードの直前のチャプターを取得"""
+        return await self.db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_id, ep_num - 1))
+
+    async def get_recent_plot_metrics(self, book_id: int, current_ep: int, limit: int = 5):
+        """直近のエピソードのストレス/カタルシス指標を取得"""
+        return await self.db.fetch_all(
+            "SELECT ep_num, stress, catharsis FROM plot WHERE book_id=? AND ep_num < ? ORDER BY ep_num DESC LIMIT ?",
+            (book_id, current_ep, limit)
+        )
+
 # ==========================================
 # 2. Dynamic Bible Manager (Optimistic Locking)
 # ==========================================
@@ -769,27 +798,31 @@ class DynamicBibleManager:
         # Always fetch fresh for locking context
         row = await db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
         if not row:
-            state = WorldState(settings="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
+            state = WorldState(new_facts=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
             return state, 0
         try:
             state = WorldState(
-                settings=row['settings'] if row['settings'] else "{}",
-                revealed=json.loads(row['revealed']) if row['revealed'] else [],
+                new_facts=[], # DBからのロード時は差分リストは空。revealedを累積として扱うが、WorldStateオブジェクトとしては空で初期化
                 revealed_mysteries=json.loads(row['revealed_mysteries']) if row.get('revealed_mysteries') else [],
                 pending_foreshadowing=json.loads(row['pending_foreshadowing']) if row.get('pending_foreshadowing') else [],
                 dependency_graph=row['dependency_graph'] if row['dependency_graph'] else "{}"
             )
+            # 便宜上、設定データなどは内部保持しておく（プロンプト生成用）
+            self._current_settings = row['settings'] if row['settings'] else "{}"
+            self._current_revealed = json.loads(row['revealed']) if row['revealed'] else []
             return state, row.get('version', 0)
         except:
-            state = WorldState(settings="{}", revealed=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
+            state = WorldState(new_facts=[], revealed_mysteries=[], pending_foreshadowing=[], dependency_graph="{}")
+            self._current_settings = "{}"
+            self._current_revealed = []
             return state, 0
 
     async def get_prompt_context(self) -> str:
         state, ver = await self.get_current_state()
         return f"""
 【WORLD STATE (Current v{ver})】
-[SETTINGS]: {state.settings}
-[REVEALED]: {json.dumps(state.revealed, ensure_ascii=False)}
+[SETTINGS]: {self._current_settings}
+[REVEALED FACTS]: {json.dumps(self._current_revealed, ensure_ascii=False)}
 [SOLVED MYSTERIES]: {json.dumps(state.revealed_mysteries, ensure_ascii=False)}
 [PENDING FORESHADOWING (FOR FUTURE USE ONLY)]: {json.dumps(state.pending_foreshadowing, ensure_ascii=False)}
 [DEPENDENCY GRAPH (Resolution Plan)]: {state.dependency_graph}
@@ -803,32 +836,51 @@ class BibleSynchronizer:
     async def save_atomic(self, chapter_data: Dict[str, Any], next_state: WorldState):
         """
         本文生成と同時にBibleとChapterをアトミックに更新する。
+        Fact Append 方式に対応。Python側で安全にマージを行う。
         """
-        # 1. 現在のBible状態を取得
-        current_state, current_ver = await self.bible_manager.get_current_state()
-
-        # 2. Bible状態のマージ (Delta Apply)
-        new_revealed = list(set(current_state.revealed + next_state.revealed))
-        new_mysteries = list(set(current_state.revealed_mysteries + next_state.revealed_mysteries))
-        new_foreshadowing = list(set(current_state.pending_foreshadowing + next_state.pending_foreshadowing))
+        # 1. 現在のBible状態を取得 (ロード)
+        current_state_obj, current_ver = await self.bible_manager.get_current_state()
         
-        # Merge Settings (JSON merge)
-        try:
-            curr_settings = json.loads(current_state.settings)
-            next_settings = json.loads(next_state.settings)
-            curr_settings.update(next_settings)
-            merged_settings = json.dumps(curr_settings, ensure_ascii=False)
-        except:
-            merged_settings = next_state.settings
+        # Current DB values (not just the Diff object)
+        row = await db.fetch_one("SELECT * FROM bible WHERE book_id=? ORDER BY id DESC LIMIT 1", (self.book_id,))
+        if row:
+            curr_settings_str = row['settings']
+            curr_revealed = json.loads(row['revealed']) if row['revealed'] else []
+            curr_mysteries = json.loads(row['revealed_mysteries']) if row.get('revealed_mysteries') else []
+            curr_foreshadowing = json.loads(row['pending_foreshadowing']) if row.get('pending_foreshadowing') else []
+            curr_dep_graph_str = row['dependency_graph'] if row['dependency_graph'] else "{}"
+        else:
+            curr_settings_str = "{}"
+            curr_revealed = []
+            curr_mysteries = []
+            curr_foreshadowing = []
+            curr_dep_graph_str = "{}"
 
-        # Dependency Graph (Overwrite or Update)
-        try:
-            curr_dep = json.loads(current_state.dependency_graph)
-            next_dep = json.loads(next_state.dependency_graph)
-            curr_dep.update(next_dep)
-            merged_graph = json.dumps(curr_dep, ensure_ascii=False)
-        except:
-            merged_graph = next_state.dependency_graph
+        # 2. Bible状態のマージ (Append Only Logic)
+        
+        # Facts: next_state.new_facts を existing revealed list に追加
+        new_facts_list = next_state.new_facts or []
+        updated_revealed = list(set(curr_revealed + new_facts_list)) # 重複排除しつつマージ
+
+        # Mysteries & Foreshadowing: 単純追加
+        updated_mysteries = list(set(curr_mysteries + (next_state.revealed_mysteries or [])))
+        updated_foreshadowing = list(set(curr_foreshadowing + (next_state.pending_foreshadowing or [])))
+        
+        # Settings: 指令によりLLMに書き換えさせない。
+        # 新しい事実は `revealed` カラムに蓄積されることで設定として機能する。
+        # よって settings カラム自体は変更しない（あるいは、必要ならPython側で `new_facts` を解析して構造化データを更新するが、ここでは安全策としてFactリストへの追記を主とする）
+        merged_settings = curr_settings_str 
+
+        # Dependency Graph (Merge)
+        merged_graph = curr_dep_graph_str
+        if next_state.dependency_graph:
+            try:
+                curr_dep = json.loads(curr_dep_graph_str)
+                next_dep = json.loads(next_state.dependency_graph) if next_state.dependency_graph else {}
+                curr_dep.update(next_dep) # マージ
+                merged_graph = json.dumps(curr_dep, ensure_ascii=False)
+            except:
+                merged_graph = next_state.dependency_graph # 失敗時は上書き
 
         new_version = current_ver + 1
 
@@ -846,16 +898,16 @@ class BibleSynchronizer:
         
         content_formatted = await formatter.format(chapter_data['content'], k_dict=k_dict)
         
-        # 4. DBへのアトミック更新（擬似的なトランザクションとして連続実行）
+        # 4. DBへのアトミック更新
         # Bible Insert
         await db.save_model(
             "INSERT INTO bible (book_id, settings, revealed, revealed_mysteries, pending_foreshadowing, dependency_graph, version, last_updated) VALUES (?,?,?,?,?,?,?,?)",
             (
                 self.book_id,
                 merged_settings,        
-                new_revealed, 
-                new_mysteries,
-                new_foreshadowing,
+                updated_revealed, 
+                updated_mysteries,
+                updated_foreshadowing,
                 merged_graph,
                 new_version,
                 datetime.datetime.now().isoformat()
@@ -883,130 +935,113 @@ class TrendAnalyst:
         self.engine = engine
 
     async def get_dynamic_seed(self) -> dict:
-        print("TrendAnalyst: Scanning Kakuyomu Global Trends via API...")
-        # 改善⑦ カクヨム特化トレンド分析
-        prompt = self.engine.prompt_manager.get("trend_analysis_prompt")
-        try:
-            res = await self.engine._generate_with_retry(
-                model=MODEL_MARKETING,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json"
-                )
-            )
-            # テキストパース処理
-            text = res.text.strip()
-            
-            # Robust extraction using regex
-            match = re.search(r'(\{.*\})', text, re.DOTALL)
-            if match:
-                text = match.group(1)
-            
-            try:
-                seed = json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                # 制御文字削除 (改行・タブは残す)
-                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                seed = json.loads(text, strict=False)
-
-            print(f"★ Trend Detected: {seed.get('genre', 'Unknown')} - {seed.get('hook_text', 'No hook')}")
-            return seed
-        except Exception as e:
-            print(f"Trend Analysis Failed: {e}. Fallback to default.")
-            return {
+        print("TrendAnalyst: Selecting from Static Trend List (No API Call)...")
+        # APIコールを廃止し、定義済みリストから選択
+        trend_seeds = [
+            {
                 "genre": "現代ダンジョン",
                 "keywords": "配信, 事故, 無双",
-                "personality": "冷静沈着",
+                "personality": "冷静沈着だが承認欲求が少しある",
                 "tone": "俺",
                 "hook_text": "配信切り忘れで世界最強がバレる",
                 "style": "style_web_standard"
+            },
+            {
+                "genre": "ハイファンタジー",
+                "keywords": "追放, ざまぁ, スローライフ",
+                "personality": "お人好しだが怒ると怖い",
+                "tone": "僕",
+                "hook_text": "勇者パーティを追放されたので辺境で店を開いたら、魔王が常連になった",
+                "style": "style_slow_life"
+            },
+            {
+                "genre": "異世界転生",
+                "keywords": "悪役令嬢, 断罪回避, 内政",
+                "personality": "合理的で少し冷徹",
+                "tone": "私（わたくし）",
+                "hook_text": "断罪イベントの前日に前世の記憶を取り戻した",
+                "style": "style_villainess_elegant"
             }
-
-class QualityAssuranceEngine:
-    def __init__(self, engine):
-        self.engine = engine
-
-    # 統合⑥ 総合検閲エンジンの構築
-    async def evaluate(self, content: str, bible_manager: DynamicBibleManager) -> QualityReport:
-        state, _ = await bible_manager.get_current_state()
-        prompt = self.engine.prompt_manager.get(
-            "qa_evaluation_prompt",
-            settings=state.settings,
-            content=content[:5000]
-        )
-        try:
-            # 修正: Gemmaモデルの場合はMIMEタイプを指定しない
-            qa_config = {}
-            if "gemini" in MODEL_PRO.lower() and "gemma" not in MODEL_PRO.lower():
-                qa_config["response_mime_type"] = "application/json"
-            
-            res = await self.engine._generate_with_retry(
-                model=MODEL_PRO, # Gemma-3-27b
-                contents=prompt,
-                config=types.GenerateContentConfig(**qa_config)
-            )
-            
-            # テキストパース処理
-            text = res.text.strip()
-            
-            # Robust extraction
-            match = re.search(r'(\{.*\})', text, re.DOTALL)
-            if match:
-                text = match.group(1)
-            
-            try:
-                data = json.loads(text, strict=False)
-            except json.JSONDecodeError:
-                text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-                data = json.loads(text, strict=False)
-            
-            return QualityReport.model_validate(data)
-            
-        except Exception as e:
-            print(f"QA Check Failed: {e}")
-            return QualityReport(
-                is_consistent=True, fatal_errors=[], consistency_score=50,
-                cliffhanger_score=50, kakuyomu_appeal_score=50,
-                stress_level=0, catharsis_level=0,
-                improvement_advice="QA Error",
-                suggested_diff="QA Error"
-            )
+        ]
+        seed = random.choice(trend_seeds)
+        print(f"★ Trend Selected: {seed.get('genre', 'Unknown')} - {seed.get('hook_text', 'No hook')}")
+        return seed
 
 class PacingGraph:
     @staticmethod
-    async def analyze(book_id: int, current_ep: int) -> Dict[str, Any]:
-        rows = await db.fetch_all(
-            "SELECT tension, stress, catharsis FROM plot WHERE book_id=? AND ep_num < ? ORDER BY ep_num DESC LIMIT 5",
-            (book_id, current_ep)
-        )
-        history = [dict(r) for r in rows][::-1]
+    async def analyze(book_id: int, current_ep: int, total_eps: int = 50) -> Dict[str, Any]:
+        """
+        構造的ペーシングロジック。
+        単純な数値計算ではなく、プロット構造上の位置（起承転結）と周期的なクライマックスを重視する。
+        """
+        repo = NovelRepository(db)
+        history = await repo.get_recent_plot_metrics(book_id, current_ep)
+        history = [dict(r) for r in history][::-1] # DB行を辞書化して反転（古い順）
         
-        # 改善⑧ 感情曲線型 pacing
-        if not history:
-            return {"type": "normal", "temperature": 0.8, "instruction": "導入部。読者の興味を惹きつけよ。", "force_catharsis": False}
+        # Graph Visualization String
+        graph_lines = []
+        for h in history:
+            s_level = "High" if h.get('stress', 0) > 60 else "Low"
+            c_level = "High" if h.get('catharsis', 0) > 60 else "Low"
+            graph_lines.append(f"Ep{h['ep_num']}: [Stress:{s_level}] -> [Catharsis:{c_level}]")
+        graph_visualization = " -> ".join(graph_lines) if graph_lines else "(First Episode)"
+
+        # --- 構造的ペーシングロジック ---
         
-        # Calculate Pacing using the formula
-        # Pacing = (Tension + Catharsis) / (Stress + 1) to avoid div by zero
-        # Check consecutive stress
-        consecutive_stress_eps = 0
-        for h in history[::-1]: # Reverse to check from most recent
-            if h.get('stress', 0) > 60 and h.get('catharsis', 0) < 40:
-                consecutive_stress_eps += 1
+        # 1. 位置による判定
+        is_first_ep = (current_ep == 1)
+        is_final_ep = (current_ep == total_eps)
+        
+        # 2. 周期的なクライマックス判定
+        is_big_climax = (current_ep % 10 == 0) # 10話ごと（章の区切り）
+        is_small_climax = (current_ep % 5 == 0) and not is_big_climax # 5話ごと（中だるみ防止）
+        
+        # 3. 指示内容の決定
+        instruction = ""
+        density_instruction = "【文章密度: 標準, 会話比率: 40%】"
+        temperature = 0.8
+        
+        # 【序盤ロジック修正】第1話〜第3話の強制スローダウン
+        if current_ep <= 3:
+            instruction = "【超スローペース】世界観の説明をするな。目の前の出来事だけを、五感を使ってゆっくり描写せよ。場面転換をしてはならない。"
+            density_instruction = "【情報密度: 極低】 読者が混乱するため、固有名詞は1話につき1つまで。会話と心理描写のみで進行せよ"
+
+        elif is_final_ep:
+            instruction = "【最終回】すべての伏線を回収し、最高のカタルシスを提供せよ。余韻を残すこと。"
+            density_instruction = "【文章密度: 高（情緒的）, 会話比率: 30%】"
+            temperature = 0.85
+            
+        elif is_big_climax:
+            instruction = "【大クライマックス（章の締め）】物語の大きな節目となる激動の展開を描け。圧倒的なカタルシスまたは絶望的なクリフハンガーが必要。"
+            density_instruction = "【文章密度: 特高（描写重視）, 会話比率: 20%】"
+            temperature = 0.9
+            
+        elif is_small_climax:
+            instruction = "【小クライマックス（中盤の山場）】物語に動きをつけ、読者を飽きさせないためのイベントを発生させよ。小気味よい解決と新たな謎の提示。"
+            density_instruction = "【文章密度: 中, 会話比率: 60%（テンポ重視）】"
+        
+        else:
+            # 通常回: 前回のストレスチェック
+            consecutive_stress_eps = 0
+            for h in history[::-1]:
+                if h.get('stress', 0) > 60 and h.get('catharsis', 0) < 40:
+                    consecutive_stress_eps += 1
+                else:
+                    break
+            
+            if consecutive_stress_eps >= 2:
+                instruction = "【緊急: ストレス解消】読者のストレスが蓄積している。小さなガス抜き（カタルシス）を用意せよ。"
             else:
-                break
+                instruction = "物語を着実に進行させよ。次への期待感を維持すること。"
         
-        force_catharsis = False
-        instruction = "標準的な物語進行。"
-        
-        if consecutive_stress_eps >= 3:
-            force_catharsis = True
-            instruction = "【緊急指令: 強制カタルシス】読者のストレスが限界に達している。この回で必ず大逆転、ざまぁ、あるいは圧倒的な無双を行い、ストレスを一気に解消せよ。"
-        
+        final_instruction = f"{instruction}\n{density_instruction}"
+
         return {
-            "type": "catharsis_required" if force_catharsis else "normal",
-            "temperature": 0.85 if force_catharsis else 0.8,
-            "instruction": instruction,
-            "force_catharsis": force_catharsis
+            "type": "structural",
+            "temperature": temperature,
+            "instruction": final_instruction,
+            "force_catharsis": is_big_climax or is_small_climax,
+            "graph_visualization": graph_visualization
         }
 
 # ==========================================
@@ -1015,7 +1050,6 @@ class PacingGraph:
 class UltraEngine:
     def __init__(self, api_key):
         self.client = genai.Client(api_key=api_key) if api_key else None
-        # AdaptiveRateLimiter Removed
         self.safety_settings = [
             types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
             types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
@@ -1025,27 +1059,7 @@ class UltraEngine:
         self.prompt_manager = PromptManager()
         self.repo = NovelRepository(db)
         self.trend_analyst = TrendAnalyst(self)
-        self.qa_engine = QualityAssuranceEngine(self)
         self.formatter = TextFormatter(self)
-
-    def _generate_system_rules(self, char_registry: CharacterRegistry, style="style_web_standard"):
-        style_def = STYLE_DEFINITIONS.get(style, STYLE_DEFINITIONS["style_web_standard"])
-        relations_str = char_registry.relations
-        dialogue_samples_str = char_registry.dialogue_samples
-        
-        return self.prompt_manager.get(
-            "system_rules",
-            mc_name=char_registry.name,
-            mc_tone=char_registry.tone,
-            mc_personality=char_registry.personality,
-            pronouns=char_registry.pronouns, 
-            keywords=char_registry.keyword_dictionary, 
-            monologue_style=char_registry.monologue_style,
-            relations=relations_str,
-            mc_dialogue_samples=dialogue_samples_str,
-            style_name=style_def["name"],
-            style_instruction=style_def["instruction"]
-        )
 
     async def _generate_with_retry(self, model, contents, config):
         retries = 0
@@ -1072,7 +1086,7 @@ class UltraEngine:
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
         """
         AIの出力からJSONを堅牢に抽出・正規化するヘルパー関数
-        エラー救済措置を含む
+        json_repair ロジックおよびフォールバック処理の実装
         """
         # 1. Markdownの削除
         text = re.sub(r'^```json\s*', '', text, flags=re.MULTILINE)
@@ -1097,20 +1111,42 @@ class UltraEngine:
                 except:
                     pass
         
+        # Try Method C: Robust "json_repair" equivalent (簡易版)
+        if data is None:
+            try:
+                # 一般的なエラーの修正: 末尾のカンマ、閉じ括弧不足、キーのクォート
+                fixed_text = text
+                # 閉じ括弧の補完
+                open_braces = fixed_text.count('{')
+                close_braces = fixed_text.count('}')
+                fixed_text += '}' * (open_braces - close_braces)
+                
+                # 末尾カンマの削除 (簡易)
+                fixed_text = re.sub(r',\s*}', '}', fixed_text)
+                
+                data = json.loads(fixed_text, strict=False)
+            except:
+                pass
+
         # 3. NOVEL FALLBACK: JSONパースに失敗したが、テキストが小説（会話文など）を含んでいる場合
         if data is None:
-            if "「" in text or "」" in text or len(text) > 100:
-                print("⚠️ Warning: JSON parse failed, but novel text detected. Using RAW TEXT fallback.")
+            # content フィールドの中身を無理やり抽出
+            content_match = re.search(r'"content"\s*:\s*"(.*?)"(?=\s*,\s*"|\s*})', text, re.DOTALL)
+            fallback_content = ""
+            if content_match:
+                fallback_content = content_match.group(1).replace('\\n', '\n').replace('\\"', '"')
+            elif len(text) > 100:
+                fallback_content = text # 生テキストを採用
+            
+            # アーティファクト除去を適用
+            fallback_content = self.formatter._remove_chat_artifacts(fallback_content)
+
+            if fallback_content:
+                print("⚠️ Warning: JSON parse failed, using RegEx/Raw text fallback.")
                 data = {
-                    "content": text,
-                    "summary": text[:200] + "...", # 簡易要約
-                    "next_world_state": {
-                        "settings": "{}",
-                        "revealed": [],
-                        "revealed_mysteries": [],
-                        "pending_foreshadowing": [],
-                        "dependency_graph": "{}"
-                    }
+                    "content": fallback_content,
+                    "summary": fallback_content[:200] + "...", # 簡易要約
+                    "next_world_state": {} # 更新なし
                 }
             else:
                 # 救済不可能
@@ -1128,7 +1164,7 @@ class UltraEngine:
         final_data = data.copy()
         final_data.update(normalized_data)
 
-        # 5. WorldState固有の修正: Dict -> JSON String への強制変換 + 必須項目の補完
+        # 5. WorldState固有の修正: Dict -> WorldState Objectへのマッピング
         if 'next_world_state' in final_data:
             ws = final_data['next_world_state']
             if isinstance(ws, dict):
@@ -1138,19 +1174,11 @@ class UltraEngine:
                     clean_k = re.sub(r'[^a-zA-Z0-9_]', '', k).lower()
                     ws_normalized[clean_k] = v
                 
-                # キーのゆらぎ吸収 (graphresolutionplan -> dependency_graph)
-                keys_to_check = list(ws_normalized.keys())
-                for k in keys_to_check:
-                    if 'dependency' in k and 'graph' in k:
-                        if k != 'dependency_graph':
-                             ws_normalized['dependency_graph'] = ws_normalized.pop(k)
-                
-                # settingsなどが辞書なら文字列化
-                for field in ['settings', 'dependency_graph']:
-                    # 必須項目の欠損対策: 存在しなければデフォルト値を入れる
-                    if field not in ws_normalized:
-                        ws_normalized[field] = "{}"
-                    
+                # キーのゆらぎ吸収
+                if 'newfacts' in ws_normalized: ws_normalized['new_facts'] = ws_normalized.pop('newfacts')
+
+                # dependency_graphなどが辞書なら文字列化
+                for field in ['dependency_graph']:
                     if field in ws_normalized and isinstance(ws_normalized[field], (dict, list)):
                         ws_normalized[field] = json.dumps(ws_normalized[field], ensure_ascii=False)
                 
@@ -1163,8 +1191,8 @@ class UltraEngine:
     # ---------------------------------------------------------
 
     async def generate_universe_blueprint_phase1(self, genre, style, mc_personality, mc_tone, keywords):
-        """第1段階: 1-25話のプロット生成"""
-        print("Step 1: Hyper-Resolution Plot Generation Phase 1 (Ep 1-25)...")
+        """第1段階: 1-50話のプロットを一括生成"""
+        print("Step 1: Hyper-Resolution Plot Generation (Ep 1-50)...")
         
         style_name = STYLE_DEFINITIONS.get(style, {"name": style}).get("name")
         structure_schema = NovelStructure.model_json_schema()
@@ -1193,7 +1221,7 @@ class UltraEngine:
             try:
                 data_dict = self._parse_json_response(text_content)
             except Exception:
-                # Fallback simplistic parsing if robust fails for structure specific reasons
+                # Fallback simplistic parsing
                 match = re.search(r'(\{.*\})', text_content, re.DOTALL)
                 text = match.group(1) if match else text_content
                 text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
@@ -1202,61 +1230,27 @@ class UltraEngine:
             # Pydanticバリデーション前にデータ補正 (JSON文字列化)
             if 'mc_profile' in data_dict:
                  if isinstance(data_dict['mc_profile'].get('pronouns'), dict):
-                       data_dict['mc_profile']['pronouns'] = json.dumps(data_dict['mc_profile']['pronouns'], ensure_ascii=False)
+                         data_dict['mc_profile']['pronouns'] = json.dumps(data_dict['mc_profile']['pronouns'], ensure_ascii=False)
                  if isinstance(data_dict['mc_profile'].get('keyword_dictionary'), dict):
-                       data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
+                         data_dict['mc_profile']['keyword_dictionary'] = json.dumps(data_dict['mc_profile']['keyword_dictionary'], ensure_ascii=False)
                  if isinstance(data_dict['mc_profile'].get('relations'), dict):
-                       data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
+                         data_dict['mc_profile']['relations'] = json.dumps(data_dict['mc_profile']['relations'], ensure_ascii=False)
                  if isinstance(data_dict['mc_profile'].get('dialogue_samples'), dict):
-                       data_dict['mc_profile']['dialogue_samples'] = json.dumps(data_dict['mc_profile']['dialogue_samples'], ensure_ascii=False)
+                         data_dict['mc_profile']['dialogue_samples'] = json.dumps(data_dict['mc_profile']['dialogue_samples'], ensure_ascii=False)
 
             return NovelStructure.model_validate(data_dict) # Validation here
         except Exception as e:
             print(f"Plot Phase 1 Error: {e}")
             return None
 
-    async def regenerate_future_plots(self, book_id, current_ep=25):
-        """第26話以降のプロットを動的に再構成する"""
-        print(f"Regenerating Future Plots (Ep {current_ep+1}-50) based on current Bible state...")
-        
-        bible_manager = DynamicBibleManager(book_id)
-        bible_context = await bible_manager.get_prompt_context()
-        
-        chapters = await db.fetch_all(f"SELECT summary FROM chapters WHERE book_id=? AND ep_num <= ? ORDER BY ep_num", (book_id, current_ep))
-        history_summ = "\n".join([f"- {c['summary']}" for c in chapters[-5:]]) # 直近5話分のみ
-
-        structure_schema = Phase2Structure.model_json_schema()
-
-        prompt = self.prompt_manager.get(
-            "plot_phase2",
-            current_ep=current_ep,
-            current_ep_plus_1=current_ep+1,
-            bible_context=bible_context,
-            history_summ=history_summ,
-            schema=json.dumps(structure_schema, ensure_ascii=False)
-        )
-        
-        try:
-            res = await self._generate_with_retry(
-                model=MODEL_ULTRALONG,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    safety_settings=self.safety_settings
-                )
-            )
-            text_content = res.text.strip()
-            return self._parse_json_response(text_content)
-
-        except Exception as e:
-            print(f"Regenerate Plots Error: {e}")
-            return None
-
-    async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, rewrite_instruction=None, semaphore=None):
+    async def write_episodes(self, book_data, start_ep, end_ep, style_dna_str="style_web_standard", target_model=MODEL_LITE, semaphore=None):
         """
         1エピソード1リクエスト化: 本文・要約・Bible更新を一括実行
-        総合検閲エンジンによるリライトループ搭載
+        ContextBuilderとNovelRepositoryによる最適化済み
         """
+        # 使用する Repository インスタンス
+        # Note: book_data is passed as dict, so we use self.repo for DB access if needed, but here we process dicts
+        
         all_plots = sorted(book_data['plots'], key=lambda x: x.get('ep_num', 999))
         target_plots = [p for p in all_plots if start_ep <= p.get('ep_num', -1) <= end_ep]
         if not target_plots: return None
@@ -1271,22 +1265,32 @@ class UltraEngine:
         except:
             char_registry = CharacterRegistry(name="主人公", tone="標準", personality="", ability="", monologue_style="", pronouns="{}", keyword_dictionary="{}", relations="{}", dialogue_samples="{}")
         
-        # 前話の文脈取得
-        prev_ep_row = await db.fetch_one("SELECT content, summary FROM chapters WHERE book_id=? AND ep_num=? ORDER BY ep_num DESC LIMIT 1", (book_data['book_id'], start_ep - 1))
-        # 修正: ブリッジ用文脈の強化。直近の500文字を取得し、プロンプトで「ここから繋げ」と指示する。
+        # 前話の文脈取得 (Repository経由)
+        prev_ep_row = await self.repo.get_latest_chapter(book_data['book_id'], start_ep)
         prev_context_text = prev_ep_row['content'][-500:] if prev_ep_row and prev_ep_row['content'] else "（物語開始）"
 
-        system_rules = self._generate_system_rules(char_registry, style=style_dna_str)
-        writing_rules = self.prompt_manager.get("writing_rules")
-        cliffhanger_protocol = self.prompt_manager.get("cliffhanger_protocol")
+        # 前話のラスト1文（句点まで）を取得
+        prev_last_sentence = ""
+        if prev_ep_row and prev_ep_row['content']:
+            content_str = prev_ep_row['content'].strip()
+            # 簡易的に最後の句点を探す。見つからなければ末尾20文字
+            match = re.search(r'[^。]+。$', content_str)
+            if match:
+                prev_last_sentence = match.group(0)
+            else:
+                prev_last_sentence = content_str[-20:]
+
+        # Style Instructionの準備
+        style_instruction = self.prompt_manager.apply_style(style_dna_str)
         
         for plot in target_plots:
             ep_num = plot['ep_num']
-            print(f"Hyper-Narrative Engine Writing Ep {ep_num} (Integrated Quality Assurance Mode)...")
+            print(f"Hyper-Narrative Engine Writing Ep {ep_num}...")
             
-            # Pacing Graph Analysis
-            pacing_data = await PacingGraph.analyze(book_data['book_id'], ep_num)
+            # Pacing Graph Analysis (Structural)
+            pacing_data = await PacingGraph.analyze(book_data['book_id'], ep_num, total_eps=50)
             pacing_instruction = pacing_data['instruction']
+            pacing_graph = pacing_data.get('graph_visualization', '')
             gen_temp = pacing_data['temperature']
 
             current_model = target_model
@@ -1300,11 +1304,9 @@ class UltraEngine:
                     s_dict = s.model_dump() if hasattr(s, 'model_dump') else s
                     scenes_str += f"- {s_dict.get('location','')}: {s_dict.get('action','')} ({s_dict.get('dialogue_point','')} - {s_dict.get('role', '')})\n"
 
-            # 修正: 詳細プロット(detailed_blueprint)の利用
+            # 詳細プロット(detailed_blueprint)の利用
             blueprint_str = plot.get('detailed_blueprint', '')
-            if not blueprint_str:
-                blueprint_str = "（詳細プロットなし。標準構成で執筆せよ）"
-
+            
             episode_plot_text = f"""
 【Episode Title】{plot['title']}
 【Detailed Blueprint (500文字以上の詳細設計図)】
@@ -1335,41 +1337,40 @@ class UltraEngine:
             if must_resolve:
                 must_resolve_instruction = f"\n【IMPORTANT: Fulfilling Foreshadowing】\n以下の伏線を本エピソードで必ず回収・言及せよ: {', '.join(must_resolve)}"
 
-            # リライトループ用変数
-            retry_count = 0
-            if 1 <= ep_num <= 5:
-                max_retries = float('inf')
-            else:
-                max_retries = 2
-            
-            # リライト時の指示（初期値は引数から、または空）
-            current_rewrite_instruction = rewrite_instruction if rewrite_instruction else "なし"
-
             async with semaphore:
-                while retry_count <= max_retries:
-                    write_prompt = self.prompt_manager.get(
-                        "episode_writer",
-                        system_rules=system_rules,
-                        entity_context=entity_context,
-                        writing_rules=writing_rules,
-                        cliffhanger_protocol=cliffhanger_protocol,
-                        pacing_instruction=pacing_instruction,
-                        current_model=current_model,
-                        ep_num=ep_num,
-                        pending_foreshadowing=json.dumps(world_state.pending_foreshadowing, ensure_ascii=False),
-                        must_resolve_instruction=must_resolve_instruction,
-                        prev_context_text=prev_context_text,
-                        episode_plot_text=episode_plot_text,
-                        expected_version=expected_version,
-                        bible_context=bible_context,
-                        rewrite_instruction=current_rewrite_instruction
-                    )
-                    
+                # ContextBuilderを使用してプロンプトを構築
+                write_prompt = self.prompt_manager.build_writing_prompt(
+                    mc_name=char_registry.name,
+                    mc_tone=char_registry.tone,
+                    pronouns=char_registry.pronouns,
+                    relations=char_registry.relations,
+                    mc_dialogue_samples=char_registry.dialogue_samples,
+                    style_instruction=style_instruction,
+                    entity_context=entity_context,
+                    pacing_instruction=pacing_instruction,
+                    pacing_graph=pacing_graph,
+                    prev_last_sentence=prev_last_sentence, # 強制接続用
+                    # Template params
+                    current_model=current_model,
+                    ep_num=ep_num,
+                    pending_foreshadowing=json.dumps(world_state.pending_foreshadowing, ensure_ascii=False),
+                    must_resolve_instruction=must_resolve_instruction,
+                    prev_context_text=prev_context_text,
+                    episode_plot_text=episode_plot_text,
+                    expected_version=expected_version,
+                    bible_context=bible_context
+                )
+                
+                gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
+                if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
+                    gen_config_args["response_mime_type"] = "application/json"
+                
+                # リトライループの実装 (最大3回)
+                retry_count = 0
+                max_retries = 3
+                
+                while retry_count < max_retries:
                     try:
-                        gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
-                        if "gemini" in current_model.lower() and "gemma" not in current_model.lower():
-                            gen_config_args["response_mime_type"] = "application/json"
-                        
                         # TPM 対策: 実行前に少し待つ
                         await asyncio.sleep(5.0) 
 
@@ -1383,40 +1384,16 @@ class UltraEngine:
                         if not text_content:
                             raise ValueError("No text content returned from API")
                         
-                        # ★ここが変更点: 堅牢なパーサーを呼び出す
-                        try:
-                            ep_data = self._parse_json_response(text_content)
-                        except Exception as parse_err:
-                            print(f"Parse failed, retrying... {parse_err}")
-                            retry_count += 1
-                            continue
+                        ep_data = self._parse_json_response(text_content)
                         
-                        # 総合検閲エンジンによる評価
-                        qa_report = await self.qa_engine.evaluate(ep_data['content'], bible_manager)
-                        
-                        # リライト判定ループ
-                        target_cliffhanger = 88 if 1 <= ep_num <= 5 else 80
-                        target_appeal = 80 if 1 <= ep_num <= 5 else 70
-                        
-                        if (qa_report.cliffhanger_score < target_cliffhanger or qa_report.kakuyomu_appeal_score < target_appeal) and retry_count < max_retries:
-                            print(f"⚠️ Low QA Score (Cliffhanger: {qa_report.cliffhanger_score}, Appeal: {qa_report.kakuyomu_appeal_score}). Retrying...")
-                            
-                            # リライト指示をChain of Thought形式で生成
-                            current_rewrite_instruction = self.prompt_manager.get(
-                                "rewrite_critique",
-                                rejected_content=ep_data['content'],
-                                improvement_advice=qa_report.improvement_advice,
-                                suggested_diff=qa_report.suggested_diff
-                            )
-                            
-                            retry_count += 1
-                            continue # 再生成へ
-                        
-                        # 成功またはリトライ切れ
                         full_content = ep_data['content']
+                        
+                        # 強制接続: 重複排除
+                        full_content = self.formatter.force_connect(full_content, prev_last_sentence)
+                        
                         ep_summary = ep_data['summary']
                         
-                        # Bible Sync (Unified Logic with Atomic Save)
+                        # Bible Sync (Unified Logic with Atomic Save & Fact Append)
                         next_state_obj = WorldState(**ep_data['next_world_state']) if isinstance(ep_data['next_world_state'], dict) else ep_data['next_world_state']
                         
                         # Prepare atomic save data
@@ -1430,12 +1407,13 @@ class UltraEngine:
                         await bible_synchronizer.save_atomic(chapter_save_data, next_state_obj)
                         
                         prev_context_text = f"（第{ep_num}話要約）{ep_summary}\n（直近の文）{full_content[-200:]}"
-
-                        # ストレス/カタルシス値をプロットテーブルに更新
-                        await db.execute(
-                            "UPDATE plot SET stress=?, catharsis=?, cliffhanger_score=? WHERE book_id=? AND ep_num=?",
-                            (qa_report.stress_level, qa_report.catharsis_level, qa_report.cliffhanger_score, book_data['book_id'], ep_num)
-                        )
+                        # 次話のためにラスト文を更新
+                        content_str = full_content.strip()
+                        match = re.search(r'[^。]+。$', content_str)
+                        if match:
+                            prev_last_sentence = match.group(0)
+                        else:
+                            prev_last_sentence = content_str[-20:]
 
                         full_chapters.append({
                             "ep_num": ep_num,
@@ -1444,11 +1422,16 @@ class UltraEngine:
                             "summary": ep_summary,
                             "world_state": ep_data.get('next_world_state', {})
                         })
-                        break # ループ脱出
+                        
+                        # 成功したらループを抜ける
+                        break
 
                     except Exception as e:
-                        print(f"Writing Error Ep{ep_num}: {e}")
-                        if retry_count == max_retries:
+                        retry_count += 1
+                        print(f"Writing Error Ep{ep_num} (Attempt {retry_count}/{max_retries}): {e}")
+                        
+                        if retry_count >= max_retries:
+                            # 3回失敗した場合のみエラーメッセージを保存
                             full_chapters.append({
                                 "ep_num": ep_num,
                                 "title": plot['title'],
@@ -1456,38 +1439,11 @@ class UltraEngine:
                                 "summary": "エラー",
                                 "world_state": {}
                             })
-                        retry_count += 1
+                        else:
+                            # 即座にエラー埋め込みを行わず、待機して再試行
+                            await asyncio.sleep(2)
 
         return {"chapters": full_chapters}
-
-    async def rewrite_target_episodes(self, book_data, target_ep_ids, evaluations, style_dna_str="style_web_standard"):
-        """リライト処理 - Uses QA Engine within write loop via instruction"""
-        rewritten_count = 0
-        semaphore = asyncio.Semaphore(1) 
-        eval_map = {e['ep_num']: e for e in evaluations}
-        tasks = []
-        
-        for ep_id in target_ep_ids:
-            eval_data = eval_map.get(ep_id, {})
-            # リライト指示を Chain of Thought で構築
-            # リライトターゲットの場合、前回の内容（DBにあるはず）を取得する必要があるが、
-            # ここでは簡易的に指示のみを渡す（本文がないため）
-            # もし本文があれば `rewrite_critique` テンプレートを使える
-            instruction = f"【品質保証(QA)からの修正命令】\n{eval_data.get('improvement_point', '')}\n{eval_data.get('suggested_diff', '')}"
-            
-            tasks.append(self.write_episodes(
-                book_data, ep_id, ep_id, 
-                style_dna_str=style_dna_str, 
-                target_model=MODEL_PRO, 
-                rewrite_instruction=instruction,
-                semaphore=semaphore
-            ))
-            
-        results = await asyncio.gather(*tasks)
-        for res in results:
-            if res and 'chapters' in res:
-                rewritten_count += 1
-        return rewritten_count
 
     async def save_blueprint_to_db(self, data, genre, style_dna_str):
         # Delegate to Repository
@@ -1498,12 +1454,13 @@ class UltraEngine:
         return await self.repo.add_plots(book_id, data_p2)
 
 # ==========================================
-# Task Functions
+# Task Functions (Updated to use Repository)
 # ==========================================
 async def task_write_batch(engine, bid, start_ep, end_ep):
-    book_info = await db.fetch_one("SELECT * FROM books WHERE id=?", (bid,))
-    plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (bid,))
-    mc = await db.fetch_one("SELECT * FROM characters WHERE book_id=? AND role='主人公'", (bid,))
+    repo = engine.repo # Use engine's repo
+    book_info = await repo.get_book(bid)
+    plots = await repo.get_plots(bid)
+    mc = await repo.get_main_character(bid)
 
     try:
         style_dna_json = json.loads(book_info['style_dna'])
@@ -1520,52 +1477,45 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     else:
         mc_profile = {"name":"主人公", "tone":"標準", "personality":"", "ability":"", "monologue_style":"", "pronouns":"{}", "keyword_dictionary":"{}", "relations":"{}", "dialogue_samples":"{}"}
 
+    # plots前処理 (Dict化)
+    processed_plots = []
     for p in plots:
-        if p.get('scenes'):
-            try: p['scenes'] = json.loads(p['scenes'])
+        p_dict = dict(p)
+        if p_dict.get('scenes'):
+            try: p_dict['scenes'] = json.loads(p_dict['scenes'])
             except: pass
-        # Map DB 'resolution' col to 'next_hook' for logical use
-        if 'resolution' in p:
-             p['next_hook'] = p['resolution']
+        if 'resolution' in p_dict:
+             p_dict['next_hook'] = p_dict['resolution']
+        processed_plots.append(p_dict)
 
-    full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": [dict(p) for p in plots]}
+    full_data = {"book_id": bid, "title": book_info['title'], "mc_profile": mc_profile, "plots": processed_plots}
     
-    # 修正: TPM15k対策。並列数を1に制限して直列化し、リクエスト集中を防ぐ
+    # 並列数を1に制限して直列化し、リクエスト集中を防ぐ
     semaphore = asyncio.Semaphore(1) 
 
     tasks = []
     print(f"Starting Serial Writing (TPM Safe Mode) (Ep {start_ep} - {end_ep})...")
 
-    target_plots = [p for p in plots if start_ep <= p['ep_num'] <= end_ep]
+    # 対象プロットのフィルタリングは write_episodes 内でも行われるが、ここでも確認
+    target_plots = [p for p in processed_plots if start_ep <= p['ep_num'] <= end_ep]
 
-    for p in target_plots:
-        ep_num = p['ep_num']
-        
-        tasks.append(engine.write_episodes(
-            full_data, 
-            ep_num, 
-            ep_num, 
-            style_dna_str=saved_style, 
-            target_model=MODEL_LITE, 
-            semaphore=semaphore
-        ))
-
-    results = await asyncio.gather(*tasks)
+    # 一括で渡す（エンジン側でループ処理）
+    # engine.write_episodes は指定範囲を処理するよう設計されている
+    results = await engine.write_episodes(
+        full_data, 
+        start_ep, 
+        end_ep, 
+        style_dna_str=saved_style, 
+        target_model=MODEL_LITE, 
+        semaphore=semaphore
+    )
 
     total_count = 0
-    for res_data in results:
-        if res_data and 'chapters' in res_data:
-            # count is merely the length of generated chapters in this batch
-            total_count += len(res_data['chapters'])
+    if results and 'chapters' in results:
+        total_count = len(results['chapters'])
             
     print(f"Batch Done (Ep {start_ep}-{end_ep}). Total Episodes Written: {total_count}")
     return total_count, full_data, saved_style
-
-async def task_rewrite(engine, full_data, rewrite_targets, evals, saved_style):
-    if not rewrite_targets: return 0
-    print(f"Rewriting {len(rewrite_targets)} Episodes (Consistency & Quality Check)...")
-    c = await engine.rewrite_target_episodes(full_data, rewrite_targets, evals, style_dna_str=saved_style)
-    return c
 
 # ==========================================
 # 3. Main Logic
@@ -1574,31 +1524,23 @@ async def task_rewrite(engine, full_data, rewrite_targets, evals, saved_style):
 async def create_zip_package(book_id, title):
     print("Packing ZIP...")
     buffer = io.BytesIO()
-
-    current_book = await db.fetch_one("SELECT * FROM books WHERE id=?", (book_id,))
-    db_chars = await db.fetch_all("SELECT * FROM characters WHERE book_id=?", (book_id,))
-    db_plots = await db.fetch_all("SELECT * FROM plot WHERE book_id=? ORDER BY ep_num", (book_id,))
-    chapters = await db.fetch_all("SELECT * FROM chapters WHERE book_id=? ORDER BY ep_num", (book_id,))
+    
+    # Repository経由でデータ取得
+    repo = NovelRepository(db)
+    current_book = await repo.get_book(book_id)
+    db_chars = await repo.get_characters(book_id)
+    db_plots = await repo.get_plots(book_id)
+    chapters = await repo.get_chapters(book_id)
     
     # マーケティングデータの取得
     marketing_data = {}
     if current_book.get('marketing_data'):
         try:
-               marketing_data = json.loads(current_book['marketing_data'])
+                marketing_data = json.loads(current_book['marketing_data'])
         except: pass
 
     def clean_filename_title(t):
         return re.sub(r'[\\/:*?"<>|]', '', re.sub(r'^第\d+話[\s　]*', '', t)).strip()
-
-    keyword_dict = {}
-    mc_char = next((c for c in db_chars if c['role'] == '主人公'), None)
-    if mc_char:
-        try:
-            reg_data = json.loads(mc_char['registry_data'])
-            if reg_data:
-                k_str = reg_data.get('keyword_dictionary', '{}')
-                k_dict = json.loads(k_str) if isinstance(k_str, str) else k_str
-        except: pass
 
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
         reg_info = f"【タイトル】\n{title}\n\n【あらすじ】\n{current_book.get('synopsis', '')}\n"
@@ -1689,46 +1631,33 @@ async def main():
     while True:
         print(f"\n=== Starting New Novel Generation Sequence at {datetime.datetime.now()} ===")
         try:
-            # Step 0: Trend Analysis (Replaced Load Seed)
+            # Step 0: Trend Analysis (Static List Selection)
             seed = await engine.trend_analyst.get_dynamic_seed()
             
-            # Step 1: 1-25話プロット + マーケティングアセット生成
-            print("Step 1a: Generating Plot Phase 1 (Ep 1-25) & Marketing Assets...")
+            # Step 1: 1-50話プロット + マーケティングアセット生成
+            print("Step 1: Generating Full Series Plot (Ep 1-50) & Marketing Assets...")
             data1 = await engine.generate_universe_blueprint_phase1(
                 seed['genre'], seed['style'], seed['personality'], seed['tone'], seed['keywords']
             )
             
             if not data1: 
-                print("Plot Gen Phase 1 failed. Skipping to next cycle.")
+                print("Plot Gen failed. Skipping to next cycle.")
                 await asyncio.sleep(10)
                 continue
 
             bid, plots_p1 = await engine.save_blueprint_to_db(data1, seed['genre'], seed['style'])
-            print(f"Phase 1 Saved. ID: {bid}")
+            print(f"Plot Phase Saved. ID: {bid}")
             
-            print("Step 2: Execution - Phase 1 Writing (Ep 1-25)...")
+            print("Step 2: Execution - Writing Episodes (Ep 1-50)...")
             
-            # Phase 1 執筆 (1-25話)
-            count_p1, full_data_p1, saved_style = await task_write_batch(engine, bid, start_ep=1, end_ep=25)
-            
-            # Phase 2 プロット生成 (再生性)
-            print("Step 3: Regenerating Future Plots (Ep 26-50)...")
-            data2 = await engine.regenerate_future_plots(bid, current_ep=25)
-            if data2 and 'plots' in data2:
-                saved_plots_p2 = await engine.save_additional_plots_to_db(bid, data2)
-                print(f"Phase 2 Plots Saved ({len(saved_plots_p2)} eps).")
-            else:
-                print("Phase 2 Generation Failed. Proceeding with existing plots if any.")
-            
-            print("Step 4: Execution - Phase 2 Writing (Ep 26-50)...")
-
-            # Phase 2 執筆 (26-50話)
-            count_p2, full_data_final, _ = await task_write_batch(engine, bid, start_ep=26, end_ep=50)
+            # 全50話執筆
+            count_p1, full_data_final, saved_style = await task_write_batch(engine, bid, start_ep=1, end_ep=50)
             
             # Finalize
             print("Running Final Packaging...")
             
-            book_info = await db.fetch_one("SELECT title FROM books WHERE id=?", (bid,))
+            # Repository経由でタイトル取得
+            book_info = await engine.repo.get_book(bid)
             title = book_info['title']
             
             zip_bytes = await create_zip_package(bid, title)
