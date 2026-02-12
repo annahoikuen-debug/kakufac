@@ -1526,6 +1526,7 @@ class UltraEngine:
                 "generate_plot_flow",
                 world_bible_json=bible_json_str,
                 plot_structure_instruction=plot_structure_instruction, # Injected here
+                FATAL_FLAWS_GUIDELINES=FATAL_FLAWS_GUIDELINES, # Pass the missing variable
                 schema=json.dumps(plot_schema, ensure_ascii=False)
             )
             
@@ -1734,7 +1735,8 @@ class UltraEngine:
                     prev_context_text=prev_context_text,
                     episode_plot_text=episode_plot_text,
                     expected_version=expected_version,
-                    bible_context=bible_context
+                    bible_context=bible_context,
+                    FATAL_FLAWS_GUIDELINES=FATAL_FLAWS_GUIDELINES # Pass to prompt builder if needed, though usually used in plot gen
                 )
                 
                 gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
