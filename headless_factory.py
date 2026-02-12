@@ -30,7 +30,7 @@ GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-3.0-flash-preview"      # 企画・設定・プロット・構成用（メガプロンプト対応）
+MODEL_ULTRALONG = "gemini-3-flash-preview"      # 企画・設定・プロット・構成用（メガプロンプト対応）
 MODEL_LITE = "gemini-2.5-flash-lite" # 執筆用
 MODEL_PRO = "gemini-2.5-flash"            # 重要な局面用
 # MODEL_MARKETING は廃止（MODEL_ULTRALONGに統合）
@@ -2097,4 +2097,5 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
+
     asyncio.run(main())
