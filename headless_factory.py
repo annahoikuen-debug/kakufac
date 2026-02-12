@@ -28,7 +28,7 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
-# Google Custom Search API Settings (TrendAnalyst用)
+# Google Custom Search API Settings (TrendAnalyst用 - 廃止のため未使用)
 CSE_API_KEY = os.environ.get("CSE_API_KEY")
 SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 
@@ -36,12 +36,12 @@ SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
-MODEL_MARKETING = "gemini-2.5-flash-lite"
+MODEL_MARKETING = "gemma-3-4b-it"
 
 DB_FILE = "factory_run.db"
 
 # ==========================================
-# 文体定義 & サンプルデータ (Few-Shot形式)
+# 文体定義 & サンプルデータ (Few-Shot形式に変更)
 # ==========================================
 STYLE_DEFINITIONS = {
     "style_serious_fantasy": {
@@ -184,42 +184,51 @@ PLOT_STRUCTURES = {
 }
 
 # ==========================================
-# 厳格な執筆ルール定数 (Updated)
+# 小説プロット＆執筆におけるAIの致命的な欠陥と対策定数
 # ==========================================
-STRICT_WRITING_GUIDELINES = """
-【小説執筆における絶対的禁止・遵守事項】
-
-1. 「予定調和」の排除と「敗北」の義務化（プロット・執筆共通）
-   - 「計算通り」「想定内」という言葉は、読者の興奮を削ぐ劇薬である。これらの独白を禁止する。
-   - 【プラン崩壊】: 主人公の事前作戦は、敵の非論理的行動や環境変化により必ず一度は破綻させよ。
-   - 【リソースの枯渇】: 勝利条件として、主人公の大切なリソース（武器、信用、身体機能など）を一つ犠牲にさせよ。泥水をすすりながらアドリブで解決する過程を描け。
+FATAL_FLAWS_GUIDELINES = """
+【小説プロット生成におけるAIの致命的な欠陥と対策】
+1. 「予定調和」の排除と「敗北」の義務化
+   - 主人公の計画が全てその通りに進む物語は、ただの作業報告書です。「計算通り」「想定内」という言葉は、読者の興奮を削ぐ劇薬だと認識してください。
+   - 【「想定外」イベントの強制挿入】
+     1. プラン崩壊: 主人公が事前に立てた作戦が、敵の非論理的な行動や環境変化により必ず一度は破綻すること。
+     2. リソースの枯渇: 勝利の条件として、主人公が最も大切にしているリソース（武器、信用、身体機能など）を一つ犠牲にさせること。
+     3. 「計算通り」の禁止: 解決後の独白で「これも計算通りだった」と強がらせる描写を禁止します。
 
 2. ヴィラン（敵役）の使い回し禁止
-   - 決定的な敗北を喫した敵キャラは、原則として二度とメインの脅威として登場させるな（敗北＝退場）。
-   - 以前の敵を単に強化（Ver.2）して再登場させる安易な展開を禁止する。
-   - ストーリー進行度30%ごとに、敵対対象を「個人」→「組織」→「社会/概念」へと明確に切り替えよ。
+   - 一度倒した中ボスを、何度も再利用するのはやめてください。倒された敵が何度も出てくると、「主人公がトドメを刺せない無能」に見えるか、「敵の人材不足」に見えて世界観が安っぽくなります。
+   - 【敵対者のライフサイクル管理】
+     1. 敗北＝退場: 決定的な敗北を喫した敵キャラは、原則として二度とメインの脅威として登場させないこと。
+     2. 敵のインフレ禁止: 以前の敵を単に強化（Ver.2）して再登場させる安易な展開を禁止します。
+     3. 脅威のシフト: ストーリー進行度30%ごとに、敵対する対象を「個人」→「組織」→「社会/概念」へと明確に切り替えてください。
 
 3. ジャンル・コンセプトの死守
-   - 物語の途中でジャンルを変えるな。「配信もの」なら神と戦う時も「配信のルール」で戦え。
-   - 解決手段は必ず作品の「コア・メカニクス（例：配信コメ数、スキル、固有能力）」を経由させよ。単なる物理・魔法攻撃での解決は禁止する。
+   - 途中で物語のジャンルを変えないでください。「配信もの」として始まったなら、神と戦う時であっても「配信のルール」で戦うべきです。
+   - 【解決手段のジャンル固定】
+     どんなにスケールの大きな事態（世界の崩壊、神との対決など）になっても、解決手段は必ず作品の「コア・メカニクス（例：ライブ配信のコメント数と投げ銭）」に落とし込んで描写してください。
 
-4. 「コピペ・ループ」の完全撲滅
-   - 【重複確認】: 書き出しが直前の出力末尾と重複していないか確認し、重複がある場合は削除せよ。
-   - 【NGフレーズ】: 直近2000文字以内で使用された「決め台詞」や「特徴的な比喩」の再使用を禁止する。
-   - 【文末バリエーション】: 3文連続で同じ語尾（〜た、〜だ、〜ます）を使用することを禁止する。
+【小説執筆におけるAIの致命的な欠陥と対策】
+1. 「コピペ・ループ」の完全撲滅
+   - 前話のラストシーンや、決め台詞を何度も繰り返すのは、読者に対する嫌がらせです。特に「章の冒頭」で前の章のあらすじを長々と書いたり、文末を毎回同じフレーズ（例：「……だわ」「……計算だ」）で締めたりするのは禁止です。
+   - 【コンテキスト・ウィンドウの制御】
+     1. 重複確認: これから書く冒頭の文章が、直前の出力の末尾と重複していないか確認し、重複がある場合は削除してください。
+     2. NGフレーズ: 直近2000文字以内で使用された「決め台詞」や「特徴的な比喩」の再使用を禁止します。
+     3. 文末バリエーション: 3文連続で同じ語尾（〜た、〜だ、〜ます）を使用することを禁止します。
 
-5. 「数値」に逃げるな、「描写」しろ（Show, Don't Tell）
-   - 具体的な数値（倍率、レベルなど）の使用は1シーンにつき1回までとする。
-   - 数値の代わりに、「周囲の環境への影響（破壊、振動、温度変化）」や「第三者の生理的反応（冷や汗、硬直、絶叫）」を描写せよ。
-   - 比喩には「ゴミのようだ」等のありきたりな表現を避け、独自の比喩を生成せよ。
+2. 「数値」に逃げるな、「描写」しろ
+   - 「127倍の強さ」「レベル999」といった安易な数値設定は、リアリティを欠いた手抜き描写です。
+   - 【Show, Don't Tell（見せて語れ）】
+     1. 数値の制限: 具体的な数値（倍率、レベルなど）の使用は1シーンにつき1回まで。
+     2. 物理的描写: 数値を書く代わりに、「周囲の環境への影響（破壊、振動、温度変化）」や「第三者の生理的反応（冷や汗、硬直、絶叫）」を描写してください。
+     3. 比喩の多様化: 「まるで〜のようだ」という比喩を使う際は、ありきたりな表現（例：ゴミのようだ、人形のようだ）を避け、独自の比喩を生成してください。
 
-6. キャラクターの「能動性」欠如の禁止
-   - 主人公が棒立ちで「システム」や「ドローン」が勝手に敵を倒す展開は禁止する。
-   - 全体の80%以上は「主人公の能動的な判断・肉体的動作」で構成せよ。
-   - 「システムが反応した」ではなく、「主人公がシステムを操作して、ギリギリで発動させた」と描写せよ。
+3. キャラクターの「能動性」欠如
+   - 主人公が突っ立っているだけで「システム」や「ドローン」が勝手に敵を倒すのは、小説ではなく「自動化工場の見学」です。
+   - 【主体行動の原則】
+     1. 自動・パッシブスキルによる解決: 全体の20%以下
+     2. 主人公の能動的な判断・肉体的動作: 全体の80%以上
+     ※「システムが反応した」ではなく、「主人公がシステムを操作して、ギリギリのタイミングで発動させた」という主語の書き換えを行ってください。
 """
-
-FATAL_FLAWS_GUIDELINES = STRICT_WRITING_GUIDELINES # 互換性のため維持
 
 # ==========================================
 # Pydantic Schemas (構造化出力用)
@@ -358,9 +367,9 @@ class PromptManager:
     TEMPLATES = {
         "trend_analysis_prompt": """
 あなたはカクヨム市場分析のプロフェッショナルです。
-以下の「カクヨムのリアルタイムトレンド検索結果」を分析し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
+以下の「カクヨム・なろうのリアルタイムトレンド検索結果」を分析し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
 
-【カクヨム・トレンド検索結果】
+【最新トレンド検索結果】
 {search_context}
 
 特に以下の要素とトレンドの掛け合わせを優先すること:
@@ -407,7 +416,7 @@ Output strictly in JSON format following this schema:
 以下の物語構造に厳密に従ってプロットを構築せよ：
 {plot_structure_instruction}
 
-{STRICT_WRITING_GUIDELINES}
+{FATAL_FLAWS_GUIDELINES}
 
 【Task: Plot Flow Generation (Ep 1-50)】
 アンカー（目的地）に矛盾なく到達するように、間のエピソード（1〜50話）のタイトルと**詳細なあらすじ（detailed_blueprint）**を埋めよ。
@@ -425,7 +434,7 @@ Output strictly in JSON format following this schema:
 """,
         "anchor_generator": """
 あなたは物語のシミュレーターです。
-以下のプロットに基づき、第{target_ep}話終了時点での「あらすじ」と「世界の状態（WorldState）」を**APIコール1回で**予測生成してください。
+以下のプロットに基づき、第{target_ep}話終了時点での「あらすじ」と「世界の状態（WorldState）」を予測生成してください。
 これは物語のアンカーポイント（章の区切り）として使用されます。
 
 【既知の設定】
@@ -550,6 +559,13 @@ Schema:
 2. **感嘆符・疑問符**: 「！」や「？」の直後には必ず全角スペースを1つ空けよ（文末の閉じ括弧直前を除く）。
 3. **改行の演出**: 場面転換や衝撃的な瞬間の前には、空白行を挟んで「溜め」を作れ。
 
+【NGワードリスト（使用禁止）】
+以下の単語および類似表現の使用を禁止する。代わりに具体的な五感（視覚・聴覚・嗅覚）で描写せよ。
+- 「想像を絶する」「あり得ない」「規格外」
+- 「ステータス」「レベル」「数値」「システムウィンドウ」（※UI描写時以外禁止）
+- 「〜のようだ」（安直な比喩禁止）
+- 「とっさに」「無意識に」（ご都合主義アクション禁止）
+
 【執筆プロトコル: 一括生成モード】
 以下のルールを厳守し、1回の出力で物語の1エピソード（導入から結末まで）を完結させよ。
 
@@ -562,7 +578,7 @@ Schema:
    - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。
 
 3. **出力文字数**:
-   - 必ず **2000文字程度** (1800〜2200文字) の範囲に収めること。
+   - 必ず **2,000文字程度** に収めること。
 
 4. **構成（起承転結）**:
    - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。
@@ -587,12 +603,12 @@ Schema:
         base_prompt = self.get("episode_writer_core", **kwargs)
 
         # 3. Assemble Final Prompt with Recency Bias (Style & Entity at the end)
-        # 構造: [System Rules] -> [Strict Guidelines] -> [Pacing Info] -> [Base Prompt (Blueprint/Context)] -> [Entity/Style Instructions (Recency)]
+        # 構造: [System Rules] -> [Pacing Info] -> [Base Prompt (Blueprint/Context)] -> [Entity/Style Instructions (Recency)]
         
         final_prompt = f"""
 {system_rules}
 
-{STRICT_WRITING_GUIDELINES}
+{FATAL_FLAWS_GUIDELINES}
 
 【PACING & EMOTION GRAPH (Current Flow)】
 {pacing_graph}
@@ -1171,47 +1187,30 @@ class TrendAnalyst:
 
     async def fetch_realtime_trends(self) -> str:
         """
-        Google Custom Search API (CSE) を使用して、
-        カクヨムランキングに特化したトレンド検索結果テキストを取得する。
+        Gemma 3 4B IT (MODEL_MARKETING) を使用して、
+        現在のWeb小説トレンド（カクヨム、なろう等）の情報を生成する。
+        外部API検索は廃止。
         """
-        # クエリをカクヨムランキング特化に変更
-        queries = ["カクヨム 週間ランキング トレンド 2026", "カクヨム 人気ジャンル 考察", "カクヨム 異世界ファンタジー 流行 設定"]
-        combined_results = ""
-
-        # Google CSE API Logic
-        if CSE_API_KEY and SEARCH_ENGINE_ID:
-            print("TrendAnalyst: Fetching Kakuyomu trends via Google Custom Search API...")
-            try:
-                for q in queries:
-                    # CSE API Endpoint
-                    url = f"https://www.googleapis.com/customsearch/v1?key={CSE_API_KEY}&cx={SEARCH_ENGINE_ID}&q={urllib.parse.quote(q)}"
-                    
-                    # Async request using run_in_executor to avoid blocking
-                    def _request():
-                        with urllib.request.urlopen(url) as response:
-                             return json.loads(response.read().decode())
-                    
-                    data = await asyncio.to_thread(_request)
-                    
-                    if 'items' in data:
-                        for item in data['items'][:3]: # Top 3 results
-                            title = item.get('title', '')
-                            snippet = item.get('snippet', '')
-                            combined_results += f"Title: {title}\nSnippet: {snippet}\n\n"
-                    await asyncio.sleep(1) # Rate limit respect
-            except Exception as e:
-                print(f"CSE API Error: {e}. Falling back to internal knowledge.")
-                combined_results = "（APIエラーのため、AIの内部知識ベースから2026年のカクヨムトレンドを予測します）"
-        else:
-            print("TrendAnalyst: CSE API Key not found. Using AI internal knowledge simulation.")
-            combined_results = "（外部検索が無効なため、AIの内部知識ベースから2026年のカクヨムトレンドを予測します）"
+        print(f"TrendAnalyst: Generating trends via {MODEL_MARKETING}...")
+        prompt = "2026年のWeb小説（カクヨム、なろう等）のトレンド、流行しているジャンル、キーワード、読者が求めている要素を分析し、レポートとしてまとめてください。"
         
-        return combined_results
+        try:
+             res = await self.engine._generate_with_retry(
+                model=MODEL_MARKETING,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7
+                )
+             )
+             return res.text.strip()
+        except Exception as e:
+            print(f"Trend Generation Failed: {e}")
+            return "（トレンド分析失敗：内部知識を参照してください）"
 
     async def get_dynamic_seed(self) -> dict:
         print("TrendAnalyst: Analyzing Realtime Trends...")
         
-        # 1. 検索結果（またはシミュレーションテキスト）の取得
+        # 1. 検索結果（またはLLMによる生成テキスト）の取得
         search_context = await self.fetch_realtime_trends()
 
         # 2. LLMによるトレンド分析とシード生成
@@ -1528,7 +1527,7 @@ class UltraEngine:
                 "generate_plot_flow",
                 world_bible_json=bible_json_str,
                 plot_structure_instruction=plot_structure_instruction, # Injected here
-                STRICT_WRITING_GUIDELINES=STRICT_WRITING_GUIDELINES, # 厳格なプロット指示を注入
+                FATAL_FLAWS_GUIDELINES=FATAL_FLAWS_GUIDELINES, # Pass the missing variable
                 schema=json.dumps(plot_schema, ensure_ascii=False)
             )
             
@@ -1564,7 +1563,7 @@ class UltraEngine:
             return None
 
     async def generate_anchor_state(self, book_data, target_ep):
-        """マイルストーンとなる章末の状態をAPIコール1回で生成し、DBに保存する"""
+        """マイルストーンとなる章末の状態を先行生成し、DBに保存する"""
         print(f"Generating Anchor State for End of Ep {target_ep}...")
         
         # 1. ターゲットまでのプロット概要を取得
@@ -1578,7 +1577,6 @@ class UltraEngine:
         bible_manager = DynamicBibleManager(book_data['book_id'])
         bible_context = await bible_manager.get_prompt_context()
 
-        # ユーザー指示: APIコール1回で行う (既に設計上は1回のリクエストで完了する)
         prompt = self.prompt_manager.get(
             "anchor_generator",
             target_ep=target_ep,
@@ -1739,7 +1737,7 @@ class UltraEngine:
                     episode_plot_text=episode_plot_text,
                     expected_version=expected_version,
                     bible_context=bible_context,
-                    STRICT_WRITING_GUIDELINES=STRICT_WRITING_GUIDELINES # Pass Strict Guidelines
+                    FATAL_FLAWS_GUIDELINES=FATAL_FLAWS_GUIDELINES # Pass to prompt builder if needed, though usually used in plot gen
                 )
                 
                 gen_config_args = {"temperature": gen_temp, "safety_settings": self.safety_settings}
@@ -1780,10 +1778,14 @@ class UltraEngine:
 
                         # Quality Gate Logic (Threshold check)
                         # 90点 -> 80点 に緩和
-                        threshold = 90 if 1 <= ep_num <= 5 else 70
+                        threshold = 90 # 全話において妥協を許さない設定に変更
                         
                         if current_score < threshold:
                              reason = ep_data.get('low_quality_reason', '理由不明')
+                             
+                             # プロンプトへのフィードバック追記ロジック
+                             write_prompt += f"\n\n【前回の反省点（重要）】\n直前の出力は以下の理由で却下されました：『{reason}』\nこの点を絶対に改善して執筆し直してください。"
+                             
                              print(f"⚠️ Low Quality Detected (Score: {current_score}/{threshold}): {reason}. Triggering Retry...")
                              # ここで例外を投げると、外側の except ブロックで捕捉され、retry_count が増えて再生成される
                              raise ValueError(f"Self-evaluated score is too low ({current_score} < {threshold}). Reason: {reason}")
@@ -1960,7 +1962,7 @@ async def task_write_batch(engine, bid, start_ep, end_ep):
     print(f"Parallel Schedule: {ranges}")
     
     # 並列数を増やす (Parallel Execution)
-    semaphore = asyncio.Semaphore(3) # Increase concurrency for parallel blocks
+    semaphore = asyncio.Semaphore(5) # Increase concurrency for parallel blocks
 
     tasks = [] 
 
@@ -2102,7 +2104,7 @@ async def main():
     while True:
         print(f"\n=== Starting New Novel Generation Sequence at {datetime.datetime.now()} ===")
         try:
-            # Step 0: Trend Analysis (Dynamic from Google Search)
+            # Step 0: Trend Analysis (Dynamic from LLM)
             seed = await engine.trend_analyst.get_dynamic_seed()
             
             # Step 1: 1-50話プロット + マーケティングアセット生成 (2-Stage)
@@ -2165,6 +2167,4 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
-
     asyncio.run(main())
-
