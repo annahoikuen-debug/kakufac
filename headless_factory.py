@@ -28,7 +28,7 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
-# Google Custom Search API Settings (TrendAnalyst用 - 廃止のため未使用)
+# Google Custom Search API Settings (TrendAnalyst用 - 有効化)
 CSE_API_KEY = os.environ.get("CSE_API_KEY")
 SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 
@@ -36,7 +36,7 @@ SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
-MODEL_MARKETING = "gemma-3-12b-it"
+MODEL_MARKETING = "gemma-3-4b-it"
 
 DB_FILE = "factory_run.db"
 
@@ -1180,25 +1180,81 @@ class TrendAnalyst:
 
     async def fetch_realtime_trends(self) -> str:
         """
-        Gemma 3 4B IT (MODEL_MARKETING) を使用して、
-        現在のWeb小説トレンド（カクヨム、なろう等）の情報を生成する。
-        外部API検索は廃止。
+        Google Custom Search APIを使用して、カクヨム等のランキング・トレンド情報を実際に検索・取得する。
+        APIキーが設定されていない場合は、LLMによるシミュレーションにフォールバックする。
         """
-        print(f"TrendAnalyst: Generating trends via {MODEL_MARKETING}...")
-        prompt = "2026年のWeb小説（カクヨム、なろう等）のトレンド、流行しているジャンル、キーワード、読者が求めている要素を分析し、レポートとしてまとめてください。"
+        print("TrendAnalyst: Searching Realtime Trends via Google Custom Search...")
         
-        try:
-             res = await self.engine._generate_with_retry(
-                model=MODEL_MARKETING,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.7
+        # APIキーがない場合のフォールバック（既存のAI生成ロジック）
+        if not CSE_API_KEY or not SEARCH_ENGINE_ID:
+            print("⚠️ CSE_API_KEY or SEARCH_ENGINE_ID not set. Using AI simulation fallback.")
+            prompt = "2026年のWeb小説（カクヨム、なろう等）のトレンド、流行しているジャンル、キーワード、読者が求めている要素を分析し、レポートとしてまとめてください。"
+            try:
+                res = await self.engine._generate_with_retry(
+                    model=MODEL_MARKETING,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=0.7)
                 )
-             )
-             return res.text.strip()
-        except Exception as e:
-            print(f"Trend Generation Failed: {e}")
-            return "（トレンド分析失敗：内部知識を参照してください）"
+                return res.text.strip()
+            except Exception as e:
+                return "（トレンド分析失敗：内部知識を参照してください）"
+
+        # 検索クエリリスト
+        queries = [
+            "カクヨム 週間ランキング 現代ファンタジー 流行",
+            "カクヨム 異世界ファンタジー トレンド 2026",
+            "小説家になろう 日間ランキング トレンド 分析",
+            "Web小説 バズる設定 2026"
+        ]
+        
+        search_results_text = ""
+        
+        for q in queries:
+            try:
+                # APIリクエストの構築
+                url = "https://www.googleapis.com/customsearch/v1"
+                params = {
+                    'key': CSE_API_KEY,
+                    'cx': SEARCH_ENGINE_ID,
+                    'q': q,
+                    'num': 3  # 各クエリ上位3件を取得
+                }
+                # urlencode
+                query_string = urllib.parse.urlencode(params)
+                req_url = f"{url}?{query_string}"
+
+                # 同期リクエストを非同期スレッドで実行
+                def _fetch():
+                    with urllib.request.urlopen(req_url) as response:
+                        return json.loads(response.read().decode('utf-8'))
+                
+                data = await asyncio.to_thread(_fetch)
+                
+                if 'items' in data:
+                    for item in data['items']:
+                        title = item.get('title', 'No Title')
+                        snippet = item.get('snippet', 'No Snippet')
+                        search_results_text += f"【Source: {title}】\n{snippet}\n\n"
+                        
+            except Exception as e:
+                print(f"Search Error for query '{q}': {e}")
+                continue
+        
+        if not search_results_text:
+            print("⚠️ Search yielded no results. Using AI simulation fallback.")
+            # 検索結果ゼロの場合のフォールバック
+            prompt = "2026年のWeb小説（カクヨム、なろう等）のトレンド、流行しているジャンル、キーワード、読者が求めている要素を分析し、レポートとしてまとめてください。"
+            try:
+                res = await self.engine._generate_with_retry(
+                    model=MODEL_MARKETING,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(temperature=0.7)
+                )
+                return res.text.strip()
+            except Exception as e:
+                return "（トレンド分析失敗：内部知識を参照してください）"
+
+        return search_results_text
 
     async def get_dynamic_seed(self) -> dict:
         print("TrendAnalyst: Analyzing Realtime Trends...")
@@ -2156,5 +2212,4 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
-
     asyncio.run(main())
