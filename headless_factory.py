@@ -28,7 +28,7 @@ API_KEY = os.environ.get("GEMINI_API_KEY")
 GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_PASS = os.environ.get("GMAIL_PASS")
 TARGET_EMAIL = os.environ.get("GMAIL_USER")
-# Google Custom Search API Settings (TrendAnalyst用)
+# Google Custom Search API Settings (TrendAnalyst用 - 廃止のため未使用)
 CSE_API_KEY = os.environ.get("CSE_API_KEY")
 SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 
@@ -36,7 +36,7 @@ SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
-MODEL_MARKETING = "gemini-2.5-flash-lite"
+MODEL_MARKETING = "gemma-3-4b-it"
 
 DB_FILE = "factory_run.db"
 
@@ -188,36 +188,46 @@ PLOT_STRUCTURES = {
 # ==========================================
 FATAL_FLAWS_GUIDELINES = """
 【小説プロット生成におけるAIの致命的な欠陥と対策】
-1. 主人公の主体性欠如と「システム」への過剰依存の回避
-   - 【主人公の能動的アクションの強制】: 「システム」や「偶然」による解決は全体の2割に留め、残り8割は主人公自身の「選択」「犠牲」「知恵」によって解決させてください。
-   - 能力を使用する際、単なる魔力消費ではない「代償（寿命、記憶、身体の一部など）」を設定し、安易な発動を防いでください。
-   - 「結果的に助かった」ではなく、「主人公が（勘違いであっても）必死に考えた策が、予想外の形で功を奏する」流れにしてください。
+1. 「予定調和」の排除と「敗北」の義務化
+   - 主人公の計画が全てその通りに進む物語は、ただの作業報告書です。「計算通り」「想定内」という言葉は、読者の興奮を削ぐ劇薬だと認識してください。
+   - 【「想定外」イベントの強制挿入】
+     1. プラン崩壊: 主人公が事前に立てた作戦が、敵の非論理的な行動や環境変化により必ず一度は破綻すること。
+     2. リソースの枯渇: 勝利の条件として、主人公が最も大切にしているリソース（武器、信用、身体機能など）を一つ犠牲にさせること。
+     3. 「計算通り」の禁止: 解決後の独白で「これも計算通りだった」と強がらせる描写を禁止します。
 
-2. 安易なパワースケールの崩壊（インフレ）の回避
-   - 【パワーバランスと成長曲線の制御】: 主人公が「世界最強」「神」になるのは最終話の直前（クライマックス）のみとしてください。それまでは常に「格上の敵」や「解決困難な理不尽」に苦戦するバランスを維持してください。
-   - 物理的な破壊力ではなく、精神的な成長や人間関係の深化に焦点を当てたエピソードを中盤に配置してください。
-   - 話数が進むごとに敵の数値だけを増やすような安直なエスカレーションを禁止します。
+2. ヴィラン（敵役）の使い回し禁止
+   - 一度倒した中ボスを、何度も再利用するのはやめてください。倒された敵が何度も出てくると、「主人公がトドメを刺せない無能」に見えるか、「敵の人材不足」に見えて世界観が安っぽくなります。
+   - 【敵対者のライフサイクル管理】
+     1. 敗北＝退場: 決定的な敗北を喫した敵キャラは、原則として二度とメインの脅威として登場させないこと。
+     2. 敵のインフレ禁止: 以前の敵を単に強化（Ver.2）して再登場させる安易な展開を禁止します。
+     3. 脅威のシフト: ストーリー進行度30%ごとに、敵対する対象を「個人」→「組織」→「社会/概念」へと明確に切り替えてください。
 
-3. 「勘違い」ギミックの形骸化とワンパターン構成の回避
-   - 【展開の多様性と「失敗」の導入】: 「勘違いによる成功」だけでなく、「勘違いが逆に事態を悪化させる」「実力で認めざるを得ない状況になる」「勘違いがバレそうになる危機」を織り交ぜてください。
-   - コメディパートの結果、救えない命があったり、取り返しのつかない誤解が生まれたりする「ビターな展開」を全体の3割程度含めてください。
-   - 主人公を称賛するだけでなく、疑念を持つ者や、勘違いを利用しようとする賢い敵対者を登場させてください。
+3. ジャンル・コンセプトの死守
+   - 途中で物語のジャンルを変えないでください。「配信もの」として始まったなら、神と戦う時であっても「配信のルール」で戦うべきです。
+   - 【解決手段のジャンル固定】
+     どんなにスケールの大きな事態（世界の崩壊、神との対決など）になっても、解決手段は必ず作品の「コア・メカニクス（例：ライブ配信のコメント数と投げ銭）」に落とし込んで描写してください。
 
 【小説執筆におけるAIの致命的な欠陥と対策】
-1. 整合性の崩壊と設定の無視（幻覚）の回避
-   - 【設定・整合性の厳守】: 現在のシーンに登場可能なキャラクターは誰か（物理的な位置関係）を確認してください。
-   - 直前のシーンから時間が連続しているか確認し、前話の末尾を重複して書かないでください。
-   - キャラクターの性格や動機が、過去の描写と矛盾していないか確認してください。
+1. 「コピペ・ループ」の完全撲滅
+   - 前話のラストシーンや、決め台詞を何度も繰り返すのは、読者に対する嫌がらせです。特に「章の冒頭」で前の章のあらすじを長々と書いたり、文末を毎回同じフレーズ（例：「……だわ」「……計算だ」）で締めたりするのは禁止です。
+   - 【コンテキスト・ウィンドウの制御】
+     1. 重複確認: これから書く冒頭の文章が、直前の出力の末尾と重複していないか確認し、重複がある場合は削除してください。
+     2. NGフレーズ: 直近2000文字以内で使用された「決め台詞」や「特徴的な比喩」の再使用を禁止します。
+     3. 文末バリエーション: 3文連続で同じ語尾（〜た、〜だ、〜ます）を使用することを禁止します。
 
-2. 語彙の貧困化と表現のループの回避
-   - 【表現の多様性とループ禁止】: 「振動した」「一体」「……（三点リーダーの多用）」など、直近500文字以内で使用した「動作動詞」や「接続詞」の再使用を禁止します。
-   - 「〜だわ」「〜た」などの文末表現が3連続しないように分散させてください。
-   - 「振動した」と書く代わりに、視覚的・聴覚的・感覚的にどう変化したのか、毎回異なる比喩を用いて描写してください。
+2. 「数値」に逃げるな、「描写」しろ
+   - 「127倍の強さ」「レベル999」といった安易な数値設定は、リアリティを欠いた手抜き描写です。
+   - 【Show, Don't Tell（見せて語れ）】
+     1. 数値の制限: 具体的な数値（倍率、レベルなど）の使用は1シーンにつき1回まで。
+     2. 物理的描写: 数値を書く代わりに、「周囲の環境への影響（破壊、振動、温度変化）」や「第三者の生理的反応（冷や汗、硬直、絶叫）」を描写してください。
+     3. 比喩の多様化: 「まるで〜のようだ」という比喩を使う際は、ありきたりな表現（例：ゴミのようだ、人形のようだ）を避け、独自の比喩を生成してください。
 
-3. ジャンル・コンセプトの忘却の回避
-   - 【トーン＆マナーの維持】: この作品のコア・コンセプト（例：「内心は臆病だが外面は最強の勘違いコメディ」）を維持してください。
-   - 各シーンを生成する際、「外面の描写（シリアス）: 40%」「内面の独白（コミカル・焦り）: 40%」「第三者の反応: 20%」の構成比率を守ってください。
-   - 単なる戦闘描写で終わらせず、必ず「コンセプトに基づいたひねり（オチ）」を段落ごとに挿入してください。
+3. キャラクターの「能動性」欠如
+   - 主人公が突っ立っているだけで「システム」や「ドローン」が勝手に敵を倒すのは、小説ではなく「自動化工場の見学」です。
+   - 【主体行動の原則】
+     1. 自動・パッシブスキルによる解決: 全体の20%以下
+     2. 主人公の能動的な判断・肉体的動作: 全体の80%以上
+     ※「システムが反応した」ではなく、「主人公がシステムを操作して、ギリギリのタイミングで発動させた」という主語の書き換えを行ってください。
 """
 
 # ==========================================
@@ -336,7 +346,7 @@ class NovelStructure(BaseModel):
     anchors: Optional[List[AnchorResponse]] = None # 追加: 2段階生成で得たアンカーを保持
 
 class EpisodeResponse(BaseModel):
-    content: str = Field(..., description="エピソード本文 (1500-2000文字)")
+    content: str = Field(..., description="エピソード本文 (2000文字程度)")
     summary: str = Field(..., description="次話への文脈用要約 (300文字程度)")
     self_evaluation_score: int = Field(..., description="このエピソードの面白さの自己採点 (0-100)。")
     low_quality_reason: Optional[str] = Field(default=None, description="点数が低い場合の理由。")
@@ -489,7 +499,7 @@ OUTPUT STRICTLY IN JSON FORMAT.
 OUTPUT STRICTLY IN JSON FORMAT.
 Schema:
 {{
-  "content": "修正済みの最終エピソード本文 (1500-2000文字)",
+  "content": "修正済みの最終エピソード本文 (2000文字程度)",
   "summary": "次話への文脈用要約 (300文字)",
   "self_evaluation_score": 0,
   "low_quality_reason": "点数が低い場合の理由",
@@ -561,7 +571,7 @@ Schema:
    - 前話のラストで提示された感情、場所、状況を冒頭の1行目で必ず引き継げ。
 
 3. **出力文字数**:
-   - 必ず **1,500文字〜2,000文字** の範囲に収めること。
+   - 必ず **2,000文字程度** に収めること。
 
 4. **構成（起承転結）**:
    - **重要: 解決（Resolution）を禁止する。** 物語を安易に解決させず、必ず「Next Hook（次への引き）」で終わること。
@@ -1170,46 +1180,30 @@ class TrendAnalyst:
 
     async def fetch_realtime_trends(self) -> str:
         """
-        Google Custom Search API (CSE) または検索結果のシミュレーションを使用して、
-        現在のWeb小説トレンド（カクヨム、なろう等）の検索結果テキストを取得する。
+        Gemma 3 4B IT (MODEL_MARKETING) を使用して、
+        現在のWeb小説トレンド（カクヨム、なろう等）の情報を生成する。
+        外部API検索は廃止。
         """
-        queries = ["カクヨム 週間ランキング トレンド 2026", "なろう 流行りジャンル 分析 2026", "Web小説 トレンド キーワード"]
-        combined_results = ""
-
-        # Google CSE API Logic
-        if CSE_API_KEY and SEARCH_ENGINE_ID:
-            print("TrendAnalyst: Fetching trends via Google Custom Search API...")
-            try:
-                for q in queries:
-                    # CSE API Endpoint
-                    url = f"https://www.googleapis.com/customsearch/v1?key={CSE_API_KEY}&cx={SEARCH_ENGINE_ID}&q={urllib.parse.quote(q)}"
-                    
-                    # Async request using run_in_executor to avoid blocking
-                    def _request():
-                        with urllib.request.urlopen(url) as response:
-                             return json.loads(response.read().decode())
-                    
-                    data = await asyncio.to_thread(_request)
-                    
-                    if 'items' in data:
-                        for item in data['items'][:3]: # Top 3 results
-                            title = item.get('title', '')
-                            snippet = item.get('snippet', '')
-                            combined_results += f"Title: {title}\nSnippet: {snippet}\n\n"
-                    await asyncio.sleep(1) # Rate limit respect
-            except Exception as e:
-                print(f"CSE API Error: {e}. Falling back to internal knowledge.")
-                combined_results = "（APIエラーのため、AIの内部知識ベースから2026年のトレンドを予測します）"
-        else:
-            print("TrendAnalyst: CSE API Key not found. Using AI internal knowledge simulation.")
-            combined_results = "（外部検索が無効なため、AIの内部知識ベースから2026年のカクヨムトレンドを予測します）"
+        print(f"TrendAnalyst: Generating trends via {MODEL_MARKETING}...")
+        prompt = "2026年のWeb小説（カクヨム、なろう等）のトレンド、流行しているジャンル、キーワード、読者が求めている要素を分析し、レポートとしてまとめてください。"
         
-        return combined_results
+        try:
+             res = await self.engine._generate_with_retry(
+                model=MODEL_MARKETING,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.7
+                )
+             )
+             return res.text.strip()
+        except Exception as e:
+            print(f"Trend Generation Failed: {e}")
+            return "（トレンド分析失敗：内部知識を参照してください）"
 
     async def get_dynamic_seed(self) -> dict:
         print("TrendAnalyst: Analyzing Realtime Trends...")
         
-        # 1. 検索結果（またはシミュレーションテキスト）の取得
+        # 1. 検索結果（またはLLMによる生成テキスト）の取得
         search_context = await self.fetch_realtime_trends()
 
         # 2. LLMによるトレンド分析とシード生成
@@ -2099,7 +2093,7 @@ async def main():
     while True:
         print(f"\n=== Starting New Novel Generation Sequence at {datetime.datetime.now()} ===")
         try:
-            # Step 0: Trend Analysis (Dynamic from Google Search)
+            # Step 0: Trend Analysis (Dynamic from LLM)
             seed = await engine.trend_analyst.get_dynamic_seed()
             
             # Step 1: 1-50話プロット + マーケティングアセット生成 (2-Stage)
