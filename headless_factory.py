@@ -33,9 +33,9 @@ CSE_API_KEY = os.environ.get("CSE_API_KEY")
 SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-2.0-flash"      # 企画・設定・プロット・構成用（メガプロンプト対応）
-MODEL_LITE = "gemini-2.0-flash-lite-preview-02-05" # 執筆用
-MODEL_PRO = "gemini-2.0-flash"            # 重要な局面用
+MODEL_ULTRALONG = "gemini-3-flash-preview"      # 企画・設定・プロット・構成用（メガプロンプト対応）
+MODEL_LITE = "gemini-2.5-flash-lite" # 執筆用
+MODEL_PRO = "gemini-2.5-flash"            # 重要な局面用
 # MODEL_MARKETING は廃止（MODEL_ULTRALONGに統合）
 
 DB_FILE = "factory_run.db"
@@ -2165,4 +2165,5 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
+
     asyncio.run(main())
