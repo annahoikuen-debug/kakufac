@@ -1780,7 +1780,7 @@ class UltraEngine:
 
                         # Quality Gate Logic (Threshold check)
                         # 90点 -> 80点 に緩和
-                        threshold = 80 if 1 <= ep_num <= 5 else 70
+                        threshold = 90 if 1 <= ep_num <= 5 else 70
                         
                         if current_score < threshold:
                              reason = ep_data.get('low_quality_reason', '理由不明')
@@ -2167,3 +2167,4 @@ async def main():
 if __name__ == "__main__":
 
     asyncio.run(main())
+
