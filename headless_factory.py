@@ -33,9 +33,9 @@ CSE_API_KEY = os.environ.get("CSE_API_KEY")
 SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 
 # モデル設定
-MODEL_ULTRALONG = "gemini-3-flash-preview"      # 企画・設定・プロット・構成用（メガプロンプト対応）
-MODEL_LITE = "gemini-2.5-flash-lite" # 執筆用
-MODEL_PRO = "gemini-2.5-flash"            # 重要な局面用
+MODEL_ULTRALONG = "gemini-2.0-flash"      # 企画・設定・プロット・構成用（メガプロンプト対応）
+MODEL_LITE = "gemini-2.0-flash-lite-preview-02-05" # 執筆用
+MODEL_PRO = "gemini-2.0-flash"            # 重要な局面用
 # MODEL_MARKETING は廃止（MODEL_ULTRALONGに統合）
 
 DB_FILE = "factory_run.db"
@@ -213,12 +213,22 @@ FATAL_FLAWS_GUIDELINES = """
 2. 能力の応用: 主人公の能力（今回は「再構築」）を、単なる修復ではなく、攻撃・防御・移動などに独創的に応用する描写を必ず1回入れること。
 3. 「ため息」禁止: 主人公に「やれやれ」と言わせる回数を1章につき1回までに制限する。
 
-【展開の多様性（Plot Twist）】
-「勘違い（Misunderstanding）」ギミックを使用する際、以下の3パターンをローテーションさせてください。
-1. 正の勘違い: 周囲が過大評価して賞賛する（基本形）。
-2. 負の勘違い: 些細な行動が、国家レベルの脅威や宣戦布告と誤解され、望まぬ強敵を引き寄せる。
-3. すれ違い: 主人公の意図が完全に無視され、物理的な損害（金銭的損失、拠点の崩壊など）を被る。
-※「称賛されて終わり」のパターンは連続2回までとします。
+【展開パターンの多様化（Variance Control）】
+「勘違い（Misunderstanding）」ギミックを使用する際、以下の3パターンをランダムに適用し、単調な称賛ループを破壊してください。
+1. 正の勘違い: 周囲が過大評価して称賛する（基本形）。
+2. 負の勘違い: 些細な行動が「宣戦布告」や「テロ予告」と誤解され、望まぬ強敵や軍隊を引き寄せる。
+3. すれ違い: 主人公の意図（例：食料確保）が完全に無視され、物理的な損害（拠点の破壊、アイテムの喪失）を被る。
+※同一パターンの連続使用を禁止します。
+
+【敵対者の能動性（Villain Agency）】
+敵対キャラクター（Antagonist）を描写する際、以下の制約を厳守してください。
+1. 受動的観察の禁止: 敵が主人公の配信を見てリアクションするだけのシーンを生成することを禁止します。
+2. オフスクリーン行動: 敵は常に「画面の外」で、主人公を追い詰めるための具体的かつ致命的なアクション（罠、軍事力行使、人質）を起こしている描写を挿入してください。
+
+【魔法コストの実効性（Cost Consequence）】
+魔法やスキルの「代償（Cost）」を描写する際、以下のルールを適用してください。
+1. デバフの強制: 代償が発生した場合、直後のアクションの成功率を著しく下げるか、物理的な失敗（物を落とす、転倒する、狙いを外す）を必ず1回発生させてください。
+2. 風味付けの禁止: 「痛いが、耐えられる」という精神論での解決を禁止し、肉体的な限界をシビアに描写してください。
 
 【感覚的描写の強制（Sensory Detail）】
 戦闘や感情が高まるシーンでは、以下の制約を適用してください。
@@ -387,6 +397,26 @@ class EpisodeResponse(BaseModel):
 # ==========================================
 class PromptManager:
     TEMPLATES = {
+        "trend_analysis_prompt": """
+あなたはカクヨム市場分析のプロフェッショナルです。
+以下の「カクヨム・なろうのリアルタイムトレンド検索結果」を分析し、**現在（2026年）Web小説で最もヒットする可能性が高い**「ジャンル・キーワード・設定」の組み合わせを一つ生成してください。
+
+【最新トレンド検索結果】
+{search_context}
+
+特に以下の要素とトレンドの掛け合わせを優先すること:
+1. 流行している「ざまぁ」「追放」の具体的な変種
+2. 人気のダンジョン・配信設定のディテール
+3. 読者が求めている主人公の性格タイプ（俺様、慎重、サイコパス等）
+
+JSON形式で以下のキーを含めて出力せよ:
+- genre: ジャンル
+- keywords: 3つの主要キーワード
+- personality: 主人公の性格（詳細に）
+- tone: 主人公の口調（一人称）
+- hook_text: 読者を惹きつける「一行あらすじ」
+- style: 最適な文体スタイルキー（STYLE_DEFINITIONSから選択）
+""",
         "generate_world_bible": """
 あなたはWeb小説の神級プロットアーキテクト（設定・構成担当）です。
 以下の【2026年2月 Web小説最新トレンド】を分析し、最もヒットする可能性が高い「ジャンル・キーワード・設定」の組み合わせを一つ企画してください。
@@ -1462,7 +1492,12 @@ class UltraEngine:
                     safety_settings=self.safety_settings
                 )
             )
-            data_bible = self._parse_json_response(res_bible.text.strip())
+            # Safe text access
+            text_content = res_bible.text.strip() if res_bible.text else ""
+            if not text_content:
+                 raise ValueError("Empty response from Bible generation")
+
+            data_bible = self._parse_json_response(text_content)
             
             # Pydantic check & normalization
             if 'mc_profile' in data_bible:
@@ -1516,7 +1551,12 @@ class UltraEngine:
                     safety_settings=self.safety_settings
                 )
             )
-            data_plot = self._parse_json_response(res_plot.text.strip())
+            # Safe text access
+            text_content_plot = res_plot.text.strip() if res_plot.text else ""
+            if not text_content_plot:
+                 raise ValueError("Empty response from Plot generation")
+
+            data_plot = self._parse_json_response(text_content_plot)
             plot_blueprint = PlotBlueprint.model_validate(data_plot)
             print("Plot Flow Generated.")
 
@@ -1572,7 +1612,12 @@ class UltraEngine:
                 )
             )
             
-            data = self._parse_json_response(res.text.strip())
+            # Safe text access
+            text_content = res.text.strip() if res.text else ""
+            if not text_content:
+                 raise ValueError("Empty response from Anchor generation")
+
+            data = self._parse_json_response(text_content)
             
             ws_dict = data.get('world_state', {})
             if isinstance(ws_dict, dict):
@@ -1732,7 +1777,8 @@ class UltraEngine:
                             config=types.GenerateContentConfig(**gen_config_args)
                         )
                         
-                        text_content = res.text.strip()
+                        # Safe text access
+                        text_content = res.text.strip() if res.text else ""
                         if not text_content:
                             raise ValueError("No text content returned from API")
                         
@@ -1742,8 +1788,8 @@ class UltraEngine:
                         if best_attempt is None or current_score > best_attempt['score']:
                             best_attempt = {
                                 "score": current_score,
-                                "content": ep_data['content'],
-                                "summary": ep_data['summary'],
+                                "content": ep_data.get('content', ''),
+                                "summary": ep_data.get('summary', ''),
                                 "data": ep_data
                             }
 
@@ -1754,11 +1800,11 @@ class UltraEngine:
                              print(f"⚠️ Low Quality Detected (Score: {current_score}/{threshold}): {reason}. Triggering Retry...")
                              raise ValueError(f"Self-evaluated score is too low ({current_score} < {threshold}). Reason: {reason}")
                         
-                        full_content = ep_data['content']
+                        full_content = ep_data.get('content', '')
                         full_content = self.formatter.force_connect(full_content, prev_last_sentence)
-                        ep_summary = ep_data['summary']
+                        ep_summary = ep_data.get('summary', '')
                         
-                        next_state_obj = WorldState(**ep_data['next_world_state']) if isinstance(ep_data['next_world_state'], dict) else ep_data['next_world_state']
+                        next_state_obj = WorldState(**ep_data['next_world_state']) if isinstance(ep_data.get('next_world_state'), dict) else ep_data.get('next_world_state', {})
                         
                         chapter_save_data = {
                             'ep_num': ep_num,
