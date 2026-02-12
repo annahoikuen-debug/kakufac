@@ -36,7 +36,7 @@ SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
-MODEL_MARKETING = "gemma-3-4b-it"
+MODEL_MARKETING = "gemma-3-4b-it" # 定義は残すがTrendAnalystでは使用しない
 
 DB_FILE = "factory_run.db"
 
@@ -1182,6 +1182,7 @@ class TrendAnalyst:
         """
         Google Custom Search APIを使用して、カクヨム等のランキング・トレンド情報を実際に検索・取得する。
         APIキーが設定されていない場合は、LLMによるシミュレーションにフォールバックする。
+        ※フォールバック時もGemma 3ではなくGemini (MODEL_ULTRALONG) を使用。
         """
         print("TrendAnalyst: Searching Realtime Trends via Google Custom Search...")
         
@@ -1191,7 +1192,7 @@ class TrendAnalyst:
             prompt = "2026年のWeb小説（カクヨム、なろう等）のトレンド、流行しているジャンル、キーワード、読者が求めている要素を分析し、レポートとしてまとめてください。"
             try:
                 res = await self.engine._generate_with_retry(
-                    model=MODEL_MARKETING,
+                    model=MODEL_ULTRALONG, # Gemma 3 (MODEL_MARKETING) から変更
                     contents=prompt,
                     config=types.GenerateContentConfig(temperature=0.7)
                 )
@@ -1246,7 +1247,7 @@ class TrendAnalyst:
             prompt = "2026年のWeb小説（カクヨム、なろう等）のトレンド、流行しているジャンル、キーワード、読者が求めている要素を分析し、レポートとしてまとめてください。"
             try:
                 res = await self.engine._generate_with_retry(
-                    model=MODEL_MARKETING,
+                    model=MODEL_ULTRALONG, # Gemma 3 (MODEL_MARKETING) から変更
                     contents=prompt,
                     config=types.GenerateContentConfig(temperature=0.7)
                 )
@@ -1270,7 +1271,7 @@ class TrendAnalyst:
         
         try:
              res = await self.engine._generate_with_retry(
-                model=MODEL_MARKETING, # Use faster/analytical model
+                model=MODEL_ULTRALONG, # Gemma 3 (MODEL_MARKETING) から変更
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
