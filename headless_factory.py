@@ -36,7 +36,7 @@ SEARCH_ENGINE_ID = os.environ.get("SEARCH_ENGINE_ID")
 MODEL_ULTRALONG = "gemini-3-flash-preview"
 MODEL_LITE = "gemma-3-12b-it"
 MODEL_PRO = "gemma-3-27b-it" 
-MODEL_MARKETING = "gemma-3-4b-it"
+MODEL_MARKETING = "gemma-3-12b-it"
 
 DB_FILE = "factory_run.db"
 
@@ -2156,4 +2156,5 @@ async def main():
             await asyncio.sleep(300)
 
 if __name__ == "__main__":
+
     asyncio.run(main())
