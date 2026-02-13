@@ -1,7 +1,7 @@
 name: Novel Factory Automation
 
 on:
-  schedule:
+  schedusle:
     # 日本時間 8:00, 16:00, 24:00 (UTC 23:00, 07:00, 15:00)
     - cron: '0 0 * * *'
     
